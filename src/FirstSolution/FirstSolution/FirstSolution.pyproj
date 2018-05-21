@@ -22,6 +22,7 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="data_preprocessing\AdditionalFilesPreprocessingStep.py" />
     <Compile Include="data_preprocessing\PreprocessingStep.py" />
     <Compile Include="data_preprocessing\__init__.py">
       <SubType>Code</SubType>
@@ -32,11 +33,20 @@
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="feature_processing\categorical_encoders.py" />
+    <Compile Include="feature_processing\missing_values_imputation.py" />
     <Compile Include="feature_processing\__init__.py">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="files_paths.py" />
     <Compile Include="load_data.py" />
+    <Compile Include="pipeline\efficient_pipeline.py" />
+    <Compile Include="pipeline\__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="validation_and_tuning\cross_validator.py" />
+    <Compile Include="validation_and_tuning\__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="WholePipeline_test.py" />
     <Compile Include="wrappers\lightgbm_wrapper.py" />
     <Compile Include="wrappers\__init__.py">
@@ -47,6 +57,8 @@
     <Folder Include="data_preprocessing\" />
     <Folder Include="feature_engineering\" />
     <Folder Include="feature_processing\" />
+    <Folder Include="pipeline\" />
+    <Folder Include="validation_and_tuning\" />
     <Folder Include="wrappers\" />
   </ItemGroup>
   <PropertyGroup>

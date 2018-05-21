@@ -21,6 +21,8 @@ import pandas as pd
 import time
 import warnings
 import networkx as nx
+import multiprocessing as mp
+import gc
 
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.feature_selection import VarianceThreshold, SelectPercentile
@@ -399,7 +401,7 @@ class DuplicatedFeaturesRemover(BaseEstimator, TransformerMixin):
     This class defines a Scikit-Learn transformer that removes features that are duplicated.
     """
 
-    def __init__(self, ignored_features_lst = []):
+    def __init__(self, ignored_features_lst = [], n_jobs = -1):
         """
         This is the class' constructor.
 
@@ -407,6 +409,9 @@ class DuplicatedFeaturesRemover(BaseEstimator, TransformerMixin):
         ----------
         ignored_features_lst : list (default = [])
                 This list contains the name of all features that will be ignored by the detection of duplicates.
+
+        n_jobs : integer (default = -1)
+                This indicates the number of CPU cores to use to do the processing. If -1, all cores are used.
                                                 
         Returns
         -------
@@ -415,6 +420,60 @@ class DuplicatedFeaturesRemover(BaseEstimator, TransformerMixin):
 
         self.ignored_features_lst = ignored_features_lst
         self._duplicated_features_lst = []
+
+        if n_jobs == -1:
+            self.n_jobs = mp.cpu_count()
+        else:
+            self.n_jobs = n_jobs
+
+        manager = mp.Manager()
+        self.edges_lst = manager.list()
+        self.ns = manager.Namespace()
+
+    def _worker(self, q, iolock):
+
+        # Get dataset
+        X = self.ns.dataset
+
+        while True:
+            features_tuple = q.get()
+
+            if features_tuple is None:
+                break
+            else:
+                f1 = self._features_lst[features_tuple[0]]
+                f2 = self._features_lst[features_tuple[1]]
+
+            if X[f1].nunique() == 1 or X[f1].isnull().all():
+                if f1 not in constant_features_lst:
+                    constant_features_lst.append(f1)
+                    print("    -", f1, "is constant. Please use features_selectors.ConstantFeaturesRemover to remove it!")
+                continue
+
+            if X[f2].nunique() == 1 or X[f2].isnull().all():
+                if f2 not in constant_features_lst:
+                    constant_features_lst.append(f2)
+                    print("    -", f2, "is constant. Please use features_selectors.ConstantFeaturesRemover to remove it!")
+                continue
+
+            # If both features doesn't have the same number of levels, then they aren't duplicated
+            f1_nb_levels = X[f1].nunique()
+            f2_nb_levels = X[f2].nunique()
+
+            if f1_nb_levels == f2_nb_levels:
+                try: # For mixed type columns (containing numbers and strings), Pandas crosstab can fail.
+                    confusion_matrix_df = pd.crosstab(X[f1], X[f2], normalize = "index")
+                except:
+                    X[f1] = X[f1].astype(str)
+                    X[f2] = X[f2].astype(str)
+
+                    confusion_matrix_df = pd.crosstab(X[f1], X[f2], normalize = "index")
+                    
+                # Add an edge in the graph indicating that both features are duplicated
+                if confusion_matrix_df.shape[0] == confusion_matrix_df.shape[1] and np.count_nonzero(confusion_matrix_df) == confusion_matrix_df.shape[0] and f1 not in self._duplicated_features_lst:
+                    iolock.acquire()
+                    self.edges_lst += [(f1, f2)]
+                    iolock.release()
         
     def fit(self, X, y = None):
         """
@@ -439,34 +498,31 @@ class DuplicatedFeaturesRemover(BaseEstimator, TransformerMixin):
         # Copy the object to avoid any modification
         X_copy = X.copy(deep = True)
         
-        features_lst = list(set(X_copy.columns.tolist()) - set(self.ignored_features_lst))
+        self._features_lst = list(set(X_copy.columns.tolist()) - set(self.ignored_features_lst))
         constant_features_lst = []
         G = nx.Graph()
 
-        for i in range(len(features_lst)):
-            for j in range(i + 1, len(features_lst)):
-                if X_copy[features_lst[i]].nunique() == 1 or X_copy[features_lst[i]].isnull().all():
-                    if features_lst[i] not in constant_features_lst:
-                        constant_features_lst.append(features_lst[i])
-                        print("    -", features_lst[i], "is constant. Please use features_selectors.ConstantFeaturesRemover to remove it!")
-                    continue
+        self.ns.dataset = X_copy
+        q = mp.Queue(maxsize = self.n_jobs)
+        iolock = mp.Lock()
+        pool = mp.Pool(self.n_jobs, initializer = self._worker, initargs = (q, iolock))
 
-                if X_copy[features_lst[j]].nunique() == 1 or X_copy[features_lst[j]].isnull().all():
-                    if features_lst[j] not in constant_features_lst:
-                        constant_features_lst.append(features_lst[j])
-                        print("    -", features_lst[j], "is constant. Please use features_selectors.ConstantFeaturesRemover to remove it!")
-                    continue
+        for i in range(len(self._features_lst)):
+            if i % 10 == 0:
+                print("Processing feature", i, "/", len(self._features_lst))
 
-                try: # For mixed type columns (containing numbers and strings), Pandas crosstab can fail.
-                    confusion_matrix_df = pd.crosstab(X_copy[features_lst[i]], X_copy[features_lst[j]], normalize = "index")
-                except:
-                    X_copy[features_lst[i]] = X_copy[features_lst[i]].astype(str)
-                    X_copy[features_lst[j]] = X_copy[features_lst[j]].astype(str)
+            for j in range(i + 1, len(self._features_lst)):
+                q.put((i, j))  # blocks until q below its max size
 
-                    confusion_matrix_df = pd.crosstab(X_copy[features_lst[i]], X_copy[features_lst[j]], normalize = "index")
-                    
-                if confusion_matrix_df.shape[0] == confusion_matrix_df.shape[1] and np.count_nonzero(confusion_matrix_df) == confusion_matrix_df.shape[0] and features_lst[i] not in self._duplicated_features_lst:
-                    G.add_edge(features_lst[i], features_lst[j])
+        # tell workers we're done
+        for _ in range(self.n_jobs):  
+            q.put(None)
+
+        pool.close()
+        pool.join()           
+        
+        # Construct the graph  
+        G.add_edges_from(list(self.edges_lst))
 
         # Get all connected components
         connected_components_lst = list(nx.connected_components(G))

@@ -24,6 +24,7 @@ import time
 import warnings
 import re
 import string
+import gc
 
 from sklearn.base import BaseEstimator, TransformerMixin
 
@@ -193,6 +194,12 @@ class PairwiseNumericalInteractionsGenerator(BaseEstimator, TransformerMixin):
 
         elif self.columns_names_lst is None:
             self.columns_names_lst = numerical_columns_lst
+
+            # Remove binary features
+            binary_features_lst = X[numerical_columns_lst].columns[X[numerical_columns_lst].apply(lambda x: x.nunique() == 2)].tolist()
+            print("binary_features_lst:", len(binary_features_lst))
+
+            self.columns_names_lst = list(set(self.columns_names_lst) - set(binary_features_lst))
             
         return self
     
@@ -213,6 +220,7 @@ class PairwiseNumericalInteractionsGenerator(BaseEstimator, TransformerMixin):
         
         if len(self.columns_names_lst) > 1: # If we have at least two features
             for i in range(len(self.columns_names_lst)):
+                print("Generating features for i =", i, "/", len(self.columns_names_lst))
                 for j in range(i + 1, len(self.columns_names_lst)):
                     # Get features names
                     f1 = self.columns_names_lst[i]
@@ -242,6 +250,8 @@ class PairwiseNumericalInteractionsGenerator(BaseEstimator, TransformerMixin):
                     X["sqrt(" + f1 + ")_-_" + f2] = np.sqrt(X[f1]) - X[f2]
                     X["sqrt(" + f1 + ")_*_" + f2] = np.sqrt(X[f1]) * X[f2]
 
+                gc.collect()
+
             if self.drop_interactions_with_overflow:
                 # Get columns with overflow
                 if len(self.columns_with_overflow_lst) == 0: # If columns are not already set (think train / test)
@@ -249,6 +259,8 @@ class PairwiseNumericalInteractionsGenerator(BaseEstimator, TransformerMixin):
 
                 # Drop the columns with overflow
                 X.drop(self.columns_with_overflow_lst, axis = 1, inplace = True)
+
+        print("X.shape after interactions generation:", X.shape)
 
         return X
 

@@ -152,6 +152,8 @@ class AbstractLGBMWrapper(ABC, BaseEstimator):
             else:
                 self.lgb_model = lgb.train(self.params, dtrain, self.nrounds, watchlist, feval = self.custom_eval_function, early_stopping_rounds = self.early_stopping_rounds, verbose_eval = self.verbose_eval)
 
+            self.nrounds = self.lgb_model.best_iteration
+
         return self
 
     @abstractmethod

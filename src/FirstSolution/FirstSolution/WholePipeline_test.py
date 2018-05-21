@@ -24,9 +24,14 @@ from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelBinarizer
+
+from pipeline.efficient_pipeline import EfficientPipeline
 from data_preprocessing.PreprocessingStep import PreprocessingStep
+from data_preprocessing.AdditionalFilesPreprocessingStep import AdditionalFilesPreprocessingStep
 from feature_processing.categorical_encoders import CategoricalFeaturesEncoder, OrdinalEncoder, GroupingEncoder, LeaveOneOutEncoder, TargetAvgEncoder
+from feature_processing.missing_values_imputation import MissingValuesImputer
 from feature_engineering.features_selectors import VarianceFeatureSelector, L1NormFeatureSelector, LGBMFeatureSelector, ConstantFeaturesRemover, DuplicatedFeaturesRemover
+from feature_engineering.features_generators import PairwiseNumericalInteractionsGenerator
 from wrappers.lightgbm_wrapper import LGBMClassifier
 
 from load_data import load_data
@@ -43,31 +48,43 @@ if __name__ == "__main__":
     enable_validation = False
 
     # Load the data; y_test is None when 'enable_validation' is False
-    X_train, X_test, y_train, y_test = load_data(TRAINING_DATA_str, TESTING_DATA_str, BUREAU_DATA_str, BUREAU_BALANCE_DATA_str, CREDIT_CARD_BALANCE_DATA_str, INSTALLMENTS_PAYMENTS_DATA_str, POS_CASH_BALANCE_DATA_str, PREVIOUS_APPLICATION_DATA_str, enable_validation, "TARGET")
+    X_train, X_test, y_train, y_test, bureau_data_df, bureau_balance_data_df, credit_card_balance_data_df, installments_payments_data_df, pos_cash_balance_data_df, previous_application_data_df = load_data(TRAINING_DATA_str, TESTING_DATA_str, BUREAU_DATA_str, BUREAU_BALANCE_DATA_str, CREDIT_CARD_BALANCE_DATA_str, INSTALLMENTS_PAYMENTS_DATA_str, POS_CASH_BALANCE_DATA_str, PREVIOUS_APPLICATION_DATA_str, enable_validation, "TARGET", CACHE_DIR_str)
     
     print("Train shape: ", X_train.shape)
     print("Test shape: ", X_test.shape)
 
-    columns_to_be_encoded_lst = ["NAME_CONTRACT_TYPE", "FLAG_OWN_CAR", "FLAG_OWN_REALTY", "EMERGENCYSTATE_MODE", 
-                                 "CODE_GENDER", "HOUSETYPE_MODE", "FONDKAPREMONT_MODE", "NAME_EDUCATION_TYPE", "NAME_FAMILY_STATUS", "NAME_HOUSING_TYPE", "NAME_TYPE_SUITE", "WEEKDAY_APPR_PROCESS_START", "WALLSMATERIAL_MODE", "NAME_INCOME_TYPE", "OCCUPATION_TYPE", "ORGANIZATION_TYPE"]
-    encoders_lst = [LabelBinarizer() for _ in columns_to_be_encoded_lst]
+    columns_to_be_encoded_lst = ["NAME_CONTRACT_TYPE", "FLAG_OWN_CAR", "FLAG_OWN_REALTY", "EMERGENCYSTATE_MODE", "CODE_GENDER", 
+                                 "HOUSETYPE_MODE", "FONDKAPREMONT_MODE", "NAME_EDUCATION_TYPE", "NAME_FAMILY_STATUS", "NAME_HOUSING_TYPE",
+                                 "NAME_TYPE_SUITE", "WEEKDAY_APPR_PROCESS_START", "WALLSMATERIAL_MODE", "NAME_INCOME_TYPE", "OCCUPATION_TYPE", 
+                                 "ORGANIZATION_TYPE"]
+    encoders_lst = [OrdinalEncoder() for _ in columns_to_be_encoded_lst]
 
     lgb_params = {
         "learning_rate": 0.005,
         "application": "binary",
-        "max_depth": 7,
-        "num_leaves": 80,
+        "max_depth": 8,
+        "num_leaves": 70,
         "verbosity": -1,
         "metric": "auc",
         "subsample": 0.9,
-        "colsample_bytree": 0.8
+        "colsample_bytree": 0.8,
+        "reg_alpha": 0.1,
+        "reg_lambda": 0.1,
+        "min_split_gain": 0.01,
+        "min_child_weight": 2
     }
 
-    main_pipeline = Pipeline([("ConstantFeaturesRemover", ConstantFeaturesRemover()),
-                              ("PreprocessingStep", PreprocessingStep()),
-                              ("CategoricalFeaturesEncoder", CategoricalFeaturesEncoder(columns_to_be_encoded_lst, encoders_lst)),
-                              ("LightGBM", LGBMClassifier(lgb_params, early_stopping_rounds = 20, random_state = 144, test_size = 0.15, verbose_eval = 100, nrounds = 10000, enable_cv = False))
-                             ])
+    additional_files_preprocessor = AdditionalFilesPreprocessingStep()
+    final_dataset_df = additional_files_preprocessor.fit_transform(bureau_data_df, bureau_balance_data_df, credit_card_balance_data_df, installments_payments_data_df, pos_cash_balance_data_df, previous_application_data_df)
+
+    # ("ConstantFeaturesRemover", ConstantFeaturesRemover()), ("DuplicatedFeaturesRemover", DuplicatedFeaturesRemover()),
+    # ("PairwiseNumericalInteractionsGenerator", PairwiseNumericalInteractionsGenerator(columns_names_lst = ["AMT_GOODS_PRICE", "FLOORSMAX_MEDI", "EXT_SOURCE_2", "CNT_FAM_MEMBERS", "NONLIVINGAREA_MEDI", "AMT_REQ_CREDIT_BUREAU_MON", "CNT_CHILDREN", "COMMONAREA_AVG", "APARTMENTS_MEDI", "COMMONAREA_MODE", "NONLIVINGAREA_MODE", "ENTRANCES_MEDI", "NONLIVINGAREA_AVG", "AMT_REQ_CREDIT_BUREAU_QRT", "AMT_REQ_CREDIT_BUREAU_WEEK", "APARTMENTS_MODE", "AMT_ANNUITY", "YEARS_BEGINEXPLUATATION_AVG", "ELEVATORS_MEDI", "APARTMENTS_AVG", "BASEMENTAREA_AVG", "FLOORSMIN_MEDI", "YEARS_BEGINEXPLUATATION_MODE", "YEARS_BEGINEXPLUATATION_MEDI", "FLOORSMIN_AVG"])),
+    main_pipeline = Pipeline([
+                                       ("PreprocessingStep", PreprocessingStep(additional_data_lst = [final_dataset_df])),
+                                       ("MissingValuesImputer", MissingValuesImputer(num_col_imputation = -999, cat_col_imputation = "NA")),
+                                       ("CategoricalFeaturesEncoder", CategoricalFeaturesEncoder(columns_to_be_encoded_lst, encoders_lst)),
+                                       ("LightGBM", LGBMClassifier(lgb_params, early_stopping_rounds = 150, test_size = 0.15, verbose_eval = 100, nrounds = 10000, enable_cv = False))
+                                      ])
     
     # Train the model
     main_pipeline.fit(X_train, y_train)
@@ -84,3 +101,10 @@ if __name__ == "__main__":
 
     # Stop the timer and print the exectution time
     print("*** Test finished : Executed in:", time.time() - start_time, "seconds ***")
+
+    # Plot features importance
+    main_pipeline._final_estimator.plot_features_importance()
+
+    # Last submission: 21/05/2018, Public LB score: 0.761, local validation score: 0.7687976114367754
+    # Last submission: 21/05/2018, Public LB score: 0.770, local validation score: 0.7775741641376764
+    # Last submission: 21/05/2018, Public LB score: 0.771, local validation score: 0.7776394514924672, best iteration: [4706]	training's auc: 0.908997	valid_1's auc: 0.781402

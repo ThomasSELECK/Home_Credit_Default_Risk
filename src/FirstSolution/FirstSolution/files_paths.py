@@ -23,5 +23,6 @@ INSTALLMENTS_PAYMENTS_DATA_str = "../../../data/raw/installments_payments.csv"
 POS_CASH_BALANCE_DATA_str = "../../../data/raw/POS_CASH_balance.csv"
 PREVIOUS_APPLICATION_DATA_str = "../../../data/raw/previous_application.csv"
 
+CACHE_DIR_str = "E:/home_credit_pipeline_cache/"
 OUTPUT_DIR_str = "../../../output/"
 PREDICTIONS_DIR_str = "../../../predictions/"

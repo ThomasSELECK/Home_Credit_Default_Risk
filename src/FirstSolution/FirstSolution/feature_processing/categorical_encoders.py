@@ -36,7 +36,7 @@ class OrdinalEncoder(BaseEstimator, TransformerMixin):
     cases where testing set contains new labels that doesn't exist in training set.
     """
 
-    def __init__(self, mapping_dict = None):
+    def __init__(self, mapping_dict = None, missing_value_replacement = "NA"):
         """
         This is the class' constructor.
 
@@ -45,6 +45,9 @@ class OrdinalEncoder(BaseEstimator, TransformerMixin):
         mapping_dict : dictionary
                 Use this to provide a custom mapping between current feature levels
                 and the integers you want to associate with them.
+
+        missing_value_replacement : string
+                Value used to replace missing values.
                                 
         Returns
         -------
@@ -53,6 +56,7 @@ class OrdinalEncoder(BaseEstimator, TransformerMixin):
 
         # Class' attributes
         self.mapping_dict = mapping_dict
+        self.missing_value_replacement = missing_value_replacement
 
         self._label_encoder = LabelEncoder()
         self._unique_labels_lst = []
@@ -76,7 +80,7 @@ class OrdinalEncoder(BaseEstimator, TransformerMixin):
 
         if self.mapping_dict is None:
             # Fit the LabelEncoder
-            self._label_encoder.fit(X)
+            self._label_encoder.fit(X.fillna(self.missing_value_replacement))
 
             # Save the unique labels available in the training set
             self._unique_labels_lst = list(self._label_encoder.classes_)
@@ -107,6 +111,7 @@ class OrdinalEncoder(BaseEstimator, TransformerMixin):
 
         # Copy the object to avoid any modification
         X_copy = X.copy(deep = True)
+        X_copy.fillna(self.missing_value_replacement, inplace = True)
 
         # Transform the feature
         if self.mapping_dict is None:
@@ -129,12 +134,16 @@ class GroupingEncoder(BaseEstimator, TransformerMixin):
     it performs one-hot encoding on remaining levels.
     """
 
-    def __init__(self, threshold, grouping_name = "OTHER"):
+    def __init__(self, encoder, threshold, grouping_name = "OTHER"):
         """
         This is the class' constructor.
 
         Parameters
         ----------
+        encoder : scikit-learn transformer
+                This is the encoder that will be used to encode the feature after
+                grouping its least frequent levels.
+
         threshold : either integer >= 2 or float between 0 and 1
                 - If this is a float between 0 and 1, then only the scarcest levels that cumulated sum represents
                   1 - threshold will be grouped in a class named 'grouping_name'.
@@ -150,11 +159,11 @@ class GroupingEncoder(BaseEstimator, TransformerMixin):
         """
 
         # Class' attributes
+        self.encoder = encoder
         self.threshold = threshold
         self.grouping_name = grouping_name
 
         self._kept_levels = []
-        self._label_encoder = LabelBinarizer()
         self.classes_ = None
 
     def fit(self, X, y = None):
@@ -186,12 +195,12 @@ class GroupingEncoder(BaseEstimator, TransformerMixin):
             levels_count_df = levels_count_df.loc[levels_count_df["cumsum"] < self.threshold * levels_count_df["count"].sum()]
             self._kept_levels = levels_count_df["level"].tolist()
 
-        # Fit the label encoder
+        # Fit the encoder
         tmp_sr = X.copy(deep = True)
         tmp_sr.loc[~X.isin(self._kept_levels)] = self.grouping_name
 
-        self._label_encoder.fit(tmp_sr)
-        self.classes_ = self._label_encoder.classes_
+        self.encoder.fit(tmp_sr)
+        self.classes_ = self.encoder.classes_
 
         return self
 
@@ -217,7 +226,7 @@ class GroupingEncoder(BaseEstimator, TransformerMixin):
         X_copy.loc[~X_copy.isin(self._kept_levels)] = self.grouping_name
 
         # Apply the transformer
-        return self._label_encoder.transform(X_copy)
+        return self.encoder.transform(X_copy)
     
 class TargetAvgEncoder(BaseEstimator, TransformerMixin):
     """
@@ -500,12 +509,14 @@ class CategoricalFeaturesEncoder(BaseEstimator, TransformerMixin):
             # Transform data using each encoder
             if isinstance(self.encoders_lst[idx], LabelBinarizer) or isinstance(self.encoders_lst[idx], GroupingEncoder): # We need a different handling of the preprocessing for one-hot coding based encoders, as they add new columns
                 # Get the result of feature transformation and convert it to Pandas DataFrame
-                if isinstance(self.encoders_lst[idx], LabelBinarizer) and len(self.encoders_lst[idx].classes_) == 2:
-                    columns_lst = [self.columns_names_lst[idx]]
-                else:
-                    columns_lst = [self.columns_names_lst[idx] + "_" + level for level in self.encoders_lst[idx].classes_]
+                tmp_npa = self.encoders_lst[idx].transform(X[self.columns_names_lst[idx]])
 
-                tmp_df = pd.DataFrame(self.encoders_lst[idx].transform(X[self.columns_names_lst[idx]]), index = X.index, columns = columns_lst)
+                if len(tmp_npa.shape) == 2 and tmp_npa.shape[1] > 1:
+                    columns_lst = [self.columns_names_lst[idx] + "_" + level for level in self.encoders_lst[idx].classes_]
+                else:
+                    columns_lst = [self.columns_names_lst[idx] + "_" + str(self.encoders_lst[idx]).split("(")[0]]
+
+                tmp_df = pd.DataFrame(tmp_npa, index = X.index, columns = columns_lst)
 
                 # Add the DataFrame to the existing data
                 X = pd.concat([X, tmp_df], axis = 1)
@@ -545,4 +556,3 @@ class CategoricalFeaturesEncoder(BaseEstimator, TransformerMixin):
             return self.fit(X).transform(X)
         else:
             return self.fit(X, y).transform(X, y)
-
