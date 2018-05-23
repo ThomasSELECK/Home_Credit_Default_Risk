@@ -138,7 +138,7 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
                 This is a data frame containing the data that will be transformed.
         """
                     
-        print("Preprocessing data...")    
+        print("Additional files preprocessing data...")    
 
         # Processing 'previous_application.csv'
 
@@ -186,7 +186,7 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
         final_dataset_df = avg_prev.reset_index().merge(avg_buro.reset_index(), how = "left", on = "SK_ID_CURR")
         final_dataset_df = final_dataset_df.merge(avg_ccb.reset_index(), how = "left", on = "SK_ID_CURR")
         final_dataset_df = final_dataset_df.merge(avg_pcb.reset_index(), how = "left", on = "SK_ID_CURR")
-        print("Preprocessing data... done")
+        print("Additional files preprocessing data... done")
 
         #return bureau_data_df, bureau_balance_data_df, credit_card_balance_data_df, installments_payments_data_df, pos_cash_balance_data_df, previous_application_data_df
         return final_dataset_df

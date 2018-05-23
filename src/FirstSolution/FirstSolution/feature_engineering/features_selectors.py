@@ -98,7 +98,14 @@ class VarianceFeatureSelector(BaseEstimator, TransformerMixin):
                 Transformed data.
         """
 
+        nb_columns = X.shape[1]
+        removed_columns_lst = set(X.columns.tolist())
         X = pd.DataFrame(self.selector.transform(X), index = X.index, columns = X.columns[self.selector.get_support()])
+
+        removed_columns_lst = list(removed_columns_lst - set(X.columns.tolist()))
+        print("VarianceFeatureSelector removed", nb_columns - X.shape[1], "columns:")
+        for col in removed_columns_lst:
+            print("    -", col)
 
         return X
 

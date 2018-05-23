@@ -364,6 +364,7 @@ class LeaveOneOutEncoder(BaseEstimator, TransformerMixin):
         self._feature_statistics_df = y.groupby(X_copy).agg(["sum", "count"])
         self._feature_statistics_df["mean"] = self._feature_statistics_df["sum"] / self._feature_statistics_df["count"]
         self._feature_statistics_df.columns = [X_copy.name + "_sum", X_copy.name + "_count", X_copy.name + "_mean"]
+        self._feature_statistics_df = self._feature_statistics_df.reset_index()
 
         # Get all levels that only appear once
         self._single_levels_npa = self._feature_statistics_df.loc[self._feature_statistics_df[X_copy.name + "_count"] == 1].index.values
@@ -392,15 +393,16 @@ class LeaveOneOutEncoder(BaseEstimator, TransformerMixin):
         X_copy.loc[X_copy.isin(self._single_levels_npa)] = self._target_mean
 
         # Encode the remaining levels
+        X_copy_df = pd.DataFrame(X_copy).merge(self._feature_statistics_df, how = "left", on = X_copy.name)
+        X_copy_df.index = X.index
+
         if y is not None:
-            X_copy_df = pd.DataFrame(X_copy).merge(self._feature_statistics_df, how = "left", left_on = X_copy.name, right_index = True)
             X_copy.loc[~X_copy.isin(self._single_levels_npa)] = (X_copy_df[X_copy.name + "_sum"].loc[~X_copy.isin(self._single_levels_npa)] - y.loc[~X_copy.isin(self._single_levels_npa)]) / (X_copy_df[X_copy.name + "_count"].loc[~X_copy.isin(self._single_levels_npa)] - 1)
         
             if self.add_gaussian_noise:
                 X_copy = X_copy * np.random.normal(1., self.sigma, X_copy.shape[0])
         else:
             # Encode the remaining levels
-            X_copy_df = pd.DataFrame(X_copy).merge(self._feature_statistics_df, how = "left", left_on = X_copy.name, right_index = True)
             X_copy.loc[~X_copy.isin(self._single_levels_npa)] = X_copy_df[X_copy.name + "_mean"].loc[~X_copy.isin(self._single_levels_npa)]
                 
         return X_copy

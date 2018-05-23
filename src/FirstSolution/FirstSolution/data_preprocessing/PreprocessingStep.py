@@ -94,8 +94,63 @@ class PreprocessingStep(BaseEstimator, TransformerMixin):
         X["CNT_FAM_MEMBERS_is_missing"] = X["CNT_FAM_MEMBERS"].isnull().astype(np.int8)
         X["DAYS_LAST_PHONE_CHANGE_is_missing"] = X["DAYS_LAST_PHONE_CHANGE"].isnull().astype(np.int8)
 
+        # Compute age from "DAYS_BIRTH"
+        X["age"] = -X["DAYS_BIRTH"] // 365
+        X["age_lt_25"] = (X["age"] < 25).astype(np.int8)
+        X["age_25_30"] = ((X["age"] >= 25) & (X["age"] < 30)).astype(np.int8)
+        X["age_30_40"] = ((X["age"] >= 30) & (X["age"] < 40)).astype(np.int8)
+        X["age_40_50"] = ((X["age"] >= 40) & (X["age"] < 50)).astype(np.int8)
+        X["age_50_60"] = ((X["age"] >= 50) & (X["age"] < 60)).astype(np.int8)
+        X["age_ge_60"] = (X["age"] >= 60).astype(np.int8)
+        X["binned_age"] = 6 * X["age_lt_25"] + 5 * X["age_25_30"] + 4 * X["age_30_40"] + 3 * X["age_40_50"] + 2 * X["age_50_60"] + X["age_ge_60"]
+
+        # Compute number working years
+        X["nb_working_years"] = -X["DAYS_EMPLOYED"] // 365
+        X["is_working_for_1000_years"] = (X["DAYS_EMPLOYED"] > 300000).astype(np.int8)
+        X["nb_working_years_lt_5"] = (X["nb_working_years"] < 5).astype(np.int8)
+        X["nb_working_years_5_10"] = ((X["nb_working_years"] >= 5) & (X["nb_working_years"] < 10)).astype(np.int8)
+        X["nb_working_years_10_20"] = ((X["nb_working_years"] >= 10) & (X["nb_working_years"] < 20)).astype(np.int8)
+        X["nb_working_years_20_30"] = ((X["nb_working_years"] >= 20) & (X["nb_working_years"] < 30)).astype(np.int8)
+        X["nb_working_years_30_40"] = ((X["nb_working_years"] >= 30) & (X["nb_working_years"] < 40)).astype(np.int8)
+        X["nb_working_years_ge_40"] = (X["nb_working_years"] >= 40).astype(np.int8)
+        X["binned_nb_working_years"] = 6 * X["nb_working_years_lt_5"] + 5 * X["nb_working_years_5_10"] + 4 * X["nb_working_years_10_20"] + 3 * X["nb_working_years_20_30"] + 2 * X["nb_working_years_30_40"] + X["nb_working_years_ge_40"]
+
+        # Compute interactions between income and annuity
+        X["diff_income_annuity"] = X["AMT_INCOME_TOTAL"] - X["AMT_ANNUITY"]
+        X["annuity_income_ratio"] = X["AMT_ANNUITY"] / X["AMT_INCOME_TOTAL"]
+
+        # How much times income does the credit represents
+        X["credit_income_ratio"] = X["AMT_CREDIT"] / X["AMT_INCOME_TOTAL"]
+
+        # Is your income < 700k? => In this case you have ~10% default rate
+        X["income_lt_700k"] = (X["AMT_INCOME_TOTAL"] < 700000).astype(np.int8)
+
+        # How many adult in the family?
+        X["nb_adults"] = X["CNT_FAM_MEMBERS"] - X["CNT_CHILDREN"]
+
+        # Try to deanonymize ELEVATORS features
+        X["ELEVATORS_AVG"] = X["ELEVATORS_AVG"] // 0.04
+        X["ELEVATORS_MEDI"] = X["ELEVATORS_MEDI"] // 0.04
+        X["ELEVATORS_MODE"] =X["ELEVATORS_MODE"] // 0.04
+
+        # Try to deanonymize ENTRANCES features
+        X["ENTRANCES_AVG"] = X["ENTRANCES_AVG"] // 0.0345
+        X["ENTRANCES_MEDI"] = X["ENTRANCES_MEDI"] // 0.0345
+        X["ENTRANCES_MODE"] =X["ENTRANCES_MODE"] // 0.0345
+
+        # Number of documents the client gave
+        X["number_of_provided_documents"] = X.filter(regex = "FLAG_DOCUMENT_.*").sum(axis = 1)
+
         # Merge additional data to main dataframe
-        X = X.merge(self._final_dataset_df, how = "left", left_index = True, right_on = "SK_ID_CURR")
+        #X = X.merge(self._final_dataset_df, how = "left", left_index = True, right_on = "SK_ID_CURR")
+
+        #X["SK_ID_CURR"] = X.index
+        X = X.reset_index()
+        X = X.merge(self._final_dataset_df, how = "left", on = "SK_ID_CURR")
+        X.index = X["SK_ID_CURR"] # => This influences model AUC. Why ? Goes from 0.773 to 0.775 on Public LB.
+                
+        # Drop ID        
+        #X.drop("SK_ID_CURR", axis = 1, inplace = True)
         
         print("Preprocessing data... done")
 
