@@ -199,7 +199,11 @@ class GroupingEncoder(BaseEstimator, TransformerMixin):
         tmp_sr = X.copy(deep = True)
         tmp_sr.loc[~X.isin(self._kept_levels)] = self.grouping_name
 
-        self.encoder.fit(tmp_sr)
+        if isinstance(self.encoder, LeaveOneOutEncoder) or isinstance(self.encoder, TargetAvgEncoder):
+            self.encoder.fit(tmp_sr, y)
+        else:
+            self.encoder.fit(tmp_sr)
+        
         self.classes_ = self.encoder.classes_
 
         return self
@@ -251,6 +255,7 @@ class TargetAvgEncoder(BaseEstimator, TransformerMixin):
         """
 
         # Class' attributes
+        self.classes_ = None
 
     def fit(self, X, y):
         """
@@ -335,6 +340,8 @@ class LeaveOneOutEncoder(BaseEstimator, TransformerMixin):
         # Class' attributes
         self.add_gaussian_noise = add_gaussian_noise
         self.sigma = sigma
+
+        self.classes_ = None
         
     def fit(self, X, y):
         """
@@ -437,7 +444,7 @@ class CategoricalFeaturesEncoder(BaseEstimator, TransformerMixin):
     The purpose of this class is to provide a transformer that encodes categorical features into numerical ones.
     """
     
-    def __init__(self, columns_names_lst, encoders_lst):
+    def __init__(self, columns_names_lst, encoders_lst, missing_value_replacement = "NA"):
         """
         Class' constructor
 
@@ -448,6 +455,9 @@ class CategoricalFeaturesEncoder(BaseEstimator, TransformerMixin):
 
         encoders_lst : list
                 Encoders chosen for each column of the columns_names_lst list.
+
+        missing_value_replacement : string
+                Value used to replace missing values.
                 
         Returns
         -------
@@ -459,6 +469,7 @@ class CategoricalFeaturesEncoder(BaseEstimator, TransformerMixin):
 
         self.columns_names_lst = columns_names_lst
         self.encoders_lst = encoders_lst
+        self.missing_value_replacement = missing_value_replacement
         
     def fit(self, X, y = None):
         """
@@ -480,10 +491,10 @@ class CategoricalFeaturesEncoder(BaseEstimator, TransformerMixin):
 
         for idx in range(len(self.columns_names_lst)):
             # Fit each encoder
-            if isinstance(self.encoders_lst[idx], LeaveOneOutEncoder) or isinstance(self.encoders_lst[idx], TargetAvgEncoder):
-                self.encoders_lst[idx].fit(X[self.columns_names_lst[idx]], y)
+            if isinstance(self.encoders_lst[idx], LeaveOneOutEncoder) or isinstance(self.encoders_lst[idx], TargetAvgEncoder) or isinstance(self.encoders_lst[idx], GroupingEncoder):
+                self.encoders_lst[idx].fit(X[self.columns_names_lst[idx]].fillna(self.missing_value_replacement), y)
             else:
-                self.encoders_lst[idx].fit(X[self.columns_names_lst[idx]])
+                self.encoders_lst[idx].fit(X[self.columns_names_lst[idx]].fillna(self.missing_value_replacement))
             
         return self
 
@@ -508,6 +519,9 @@ class CategoricalFeaturesEncoder(BaseEstimator, TransformerMixin):
         start_time = time.time()
         
         for idx in range(len(self.columns_names_lst)):
+            # Impute missing values
+            X[self.columns_names_lst[idx]].fillna(self.missing_value_replacement, inplace = True)
+
             # Transform data using each encoder
             if isinstance(self.encoders_lst[idx], LabelBinarizer) or isinstance(self.encoders_lst[idx], GroupingEncoder): # We need a different handling of the preprocessing for one-hot coding based encoders, as they add new columns
                 # Get the result of feature transformation and convert it to Pandas DataFrame

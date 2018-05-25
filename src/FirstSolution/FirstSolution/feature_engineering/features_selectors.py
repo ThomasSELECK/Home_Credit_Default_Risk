@@ -78,6 +78,11 @@ class VarianceFeatureSelector(BaseEstimator, TransformerMixin):
                 Return current object.
         """
 
+        X = X.replace([-np.inf, np.inf], np.nan)
+        tmp = X.isnull().sum()
+        print("Infinite values:")
+        print(tmp.loc[tmp > 0])
+
         self.selector = VarianceThreshold(self.threshold)
         self.selector.fit(X, y)
 
@@ -97,6 +102,11 @@ class VarianceFeatureSelector(BaseEstimator, TransformerMixin):
         X : pd.DataFrame
                 Transformed data.
         """
+
+        X = X.replace([-np.inf, np.inf], np.nan)
+        tmp = X.isnull().sum()
+        print("Test Infinite values:")
+        print(tmp.loc[tmp > 0])
 
         nb_columns = X.shape[1]
         removed_columns_lst = set(X.columns.tolist())
@@ -262,30 +272,32 @@ class LGBMFeatureSelector(BaseEstimator, TransformerMixin):
 
         # Choose the right model depending on problem type
         if self.problem_type == "classification":
-            # Add classification hyperparameters
-            num_classes = np.unique(y).shape[0]
-            if num_classes == 2:
-                self.lgbm_params["application"] = "binary"
-                self.lgbm_params["metric"] = "binary_logloss"
-            elif num_classes > 2:
-                self.lgbm_params["application"] = "multiclass"
-                self.lgbm_params["num_class"] = num_classes
-                self.lgbm_params["metric"] = "multi_logloss"
+            if self.lgbm_params is None:
+                # Add classification hyperparameters
+                num_classes = np.unique(y).shape[0]
+                if num_classes == 2:
+                    self.lgbm_params["application"] = "binary"
+                    self.lgbm_params["metric"] = "binary_logloss"
+                elif num_classes > 2:
+                    self.lgbm_params["application"] = "multiclass"
+                    self.lgbm_params["num_class"] = num_classes
+                    self.lgbm_params["metric"] = "multi_logloss"
 
             if self.enable_cv:
-                self._model = LGBMClassifier(self.lgbm_params, early_stopping_rounds = 50, random_state = 0, test_size = 0.15, verbose_eval = 100)
+                self._model = LGBMClassifier(self.lgbm_params, early_stopping_rounds = 50, random_state = 0, test_size = 0.15, verbose_eval = 100, nrounds = 10000, enable_cv = self.enable_cv)
             else:
-                self._model = LGBMClassifier(self.lgbm_params, early_stopping_rounds = 50, random_state = 0, test_size = 0.15, verbose_eval = 100, nrounds = 10000)
+                self._model = LGBMClassifier(self.lgbm_params, early_stopping_rounds = 50, random_state = 0, test_size = 0.15, verbose_eval = 100, nrounds = 10000, enable_cv = self.enable_cv)
 
         elif self.problem_type == "regression":
-            # Add regression hyperparameters
-            self.lgbm_params["application"] = "regression"
-            self.lgbm_params["metric"] = "mse"
+            if self.lgbm_params is None:
+                # Add regression hyperparameters
+                self.lgbm_params["application"] = "regression"
+                self.lgbm_params["metric"] = "mse"
 
             if self.enable_cv:
-                self._model = LGBMRegressor(self.lgbm_params, early_stopping_rounds = 50, random_state = 0, test_size = 0.15, verbose_eval = 100)
+                self._model = LGBMRegressor(self.lgbm_params, early_stopping_rounds = 50, random_state = 0, test_size = 0.15, verbose_eval = 100, nrounds = 10000, enable_cv = self.enable_cv)
             else:
-                self._model = LGBMRegressor(self.lgbm_params, early_stopping_rounds = 50, random_state = 0, test_size = 0.15, verbose_eval = 100, nrounds = 10000)
+                self._model = LGBMRegressor(self.lgbm_params, early_stopping_rounds = 50, random_state = 0, test_size = 0.15, verbose_eval = 100, nrounds = 10000, enable_cv = self.enable_cv)
 
         # Fit the model
         self._model.fit(X, y)

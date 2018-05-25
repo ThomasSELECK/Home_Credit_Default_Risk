@@ -94,6 +94,9 @@ class MissingValuesImputer(BaseEstimator, TransformerMixin):
                 Transformed data.
         """
 
+        # Remove infinite values
+        X = X.replace([-np.inf, np.inf], np.nan)
+
         X[self._categorical_columns_lst] = X[self._categorical_columns_lst].fillna(self.cat_col_imputation)
 
         if self.num_col_imputation == "mean":

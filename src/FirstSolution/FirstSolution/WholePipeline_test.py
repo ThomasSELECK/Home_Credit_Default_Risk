@@ -19,6 +19,8 @@ import numpy as np
 import pandas as pd
 import pickle
 import gc
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
@@ -59,25 +61,45 @@ if __name__ == "__main__":
     columns_to_be_encoded_lst = ["NAME_CONTRACT_TYPE", "FLAG_OWN_CAR", "FLAG_OWN_REALTY", "EMERGENCYSTATE_MODE", "CODE_GENDER", "CODE_GENDER", 
                                  "HOUSETYPE_MODE", "FONDKAPREMONT_MODE", "NAME_EDUCATION_TYPE", "NAME_EDUCATION_TYPE", "NAME_FAMILY_STATUS", "NAME_HOUSING_TYPE",
                                  "NAME_TYPE_SUITE", "WEEKDAY_APPR_PROCESS_START", "WALLSMATERIAL_MODE", "NAME_INCOME_TYPE", "NAME_INCOME_TYPE", "OCCUPATION_TYPE", 
-                                 "ORGANIZATION_TYPE", "ORGANIZATION_TYPE"]
-    encoders_lst = [LabelBinarizer(), OrdinalEncoder(), OrdinalEncoder(), OrdinalEncoder(), LabelBinarizer(), TargetAvgEncoder(),
+                                 "ORGANIZATION_TYPE"]#, "ORGANIZATION_TYPE"]
+    encoders_lst = [LabelBinarizer(), OrdinalEncoder(), OrdinalEncoder(), OrdinalEncoder(), OrdinalEncoder(), TargetAvgEncoder(),
                     LabelBinarizer(), LabelBinarizer(), LabelBinarizer(), TargetAvgEncoder(), LabelBinarizer(), LabelBinarizer(),
-                    OrdinalEncoder(), OrdinalEncoder(), OrdinalEncoder(), LabelBinarizer(), TargetAvgEncoder(), OrdinalEncoder(),
-                    LabelBinarizer(), TargetAvgEncoder()]
+                    GroupingEncoder(LabelBinarizer(), 3), OrdinalEncoder(), OrdinalEncoder(), LabelBinarizer(), TargetAvgEncoder(), OrdinalEncoder(),
+                    GroupingEncoder(LabelBinarizer(), 25)]#, GroupingEncoder(TargetAvgEncoder(), 20)] =>  Generates infinity / nans (cf variance selector)
 
-    lgb_params = {
-        "learning_rate": 0.025,
+    """lgb_params = {
+        "learning_rate": 0.015,
         "application": "binary",
-        "max_depth": 6,
+        "max_depth": 7,
         "num_leaves": 70,
         "verbosity": -1,
         "metric": "auc",
         "subsample": 0.9,
-        "colsample_bytree": 0.65,
+        "colsample_bytree": 0.70,
         "reg_alpha": 0.1,
         "reg_lambda": 0.1,
         "min_split_gain": 0.01,
         "min_child_weight": 19
+    }"""
+
+    lgb_params = {"boosting_type": "gbdt",
+          "max_depth" : 9,
+          "objective": "binary",
+          "num_leaves": 70,
+          "learning_rate": 0.015,
+          "max_bin": 512,
+          "subsample_for_bin": 200,
+          "subsample": 1,
+          "subsample_freq": 1,
+          "colsample_bytree": 0.7,
+          "reg_alpha": 5,
+          "reg_lambda": 10,
+          "min_split_gain": 0.5,
+          "min_child_weight": 19,
+          "min_child_samples": 5,
+          "scale_pos_weight": 1,
+          "metric" : "auc",
+          "verbosity": -1
     }
 
     # ("ConstantFeaturesRemover", ConstantFeaturesRemover()), ("DuplicatedFeaturesRemover", DuplicatedFeaturesRemover()),
@@ -87,6 +109,7 @@ if __name__ == "__main__":
                                        ("MissingValuesImputer", MissingValuesImputer(num_col_imputation = -999, cat_col_imputation = "NA")),
                                        ("CategoricalFeaturesEncoder", CategoricalFeaturesEncoder(columns_to_be_encoded_lst, encoders_lst)),
                                        ("VarianceFeatureSelector", VarianceFeatureSelector(3e-5)),
+                                       ("LGBMFeatureSelector", LGBMFeatureSelector(threshold = 0.762, problem_type = "classification", enable_cv = False, lgbm_params = lgb_params)),
                                        ("LightGBM", LGBMClassifier(lgb_params, early_stopping_rounds = 150, test_size = 0.15, verbose_eval = 100, nrounds = 10000, enable_cv = False))
                                       ])
     
@@ -98,7 +121,7 @@ if __name__ == "__main__":
 
     # Evaluate the model
     if enable_validation:
-        print("Validation AUC:",roc_auc_score(y_test, predictions_npa))
+        print("Validation AUC:", roc_auc_score(y_test, predictions_npa))
     else:
         predictions_df = pd.DataFrame({"SK_ID_CURR": X_test.index, "TARGET": predictions_npa})
         predictions_df.to_csv(PREDICTIONS_DIR_str + "first_solution_submission.csv", index = False)
@@ -107,11 +130,15 @@ if __name__ == "__main__":
     print("*** Test finished : Executed in:", time.time() - start_time, "seconds ***")
 
     # Plot features importance
-    main_pipeline._final_estimator.plot_features_importance()
+    feature_importance_df = main_pipeline._final_estimator.get_features_importance()
+    feature_importance_df.to_excel("E:/lgbm_feature_importance.xlsx")
 
     # Last submission: 21/05/2018, Public LB score: 0.761, local validation score: 0.7687976114367754
     # Last submission: 21/05/2018, Public LB score: 0.770, local validation score: 0.7775741641376764
     # Last submission: 21/05/2018, Public LB score: 0.771, local validation score: 0.7776394514924672
     # Last submission: 24/05/2018, Public LB score: 0.773, local validation score: 0.7794927755985116
     # Last submission: 24/05/2018, Public LB score: 0.775, local validation score: 0.7793674315947481, best iteration: [1052]	training's auc: 0.860267	valid_1's auc: 0.782403
-    # Last submission: 24/05/2018, Public LB score: 0.772, local validation score: 0.
+    # Last submission: 24/05/2018, Public LB score: 0.771, local validation score: 0., best iteration: [1216]	training's auc: 0.867785	valid_1's auc: 0.783003
+    # Last submission: 25/05/2018, Public LB score: 0.775, local validation score: 0.7804498196917823, best iteration: [927]	training's auc: 0.874475	valid_1's auc: 0.783752
+    # Last submission: 25/05/2018, Public LB score: 0.775, local validation score: 0.7830585913439122, best iteration: [1286]	training's auc: 0.900563	valid_1's auc: 0.786186
+    # Last submission: 25/05/2018, Public LB score: 0.778, local validation score: 0.7839737433431141, best iteration: [1731]	training's auc: 0.887433	valid_1's auc: 0.786673
