@@ -8,7 +8,7 @@
 # Developped using Python 3.6.                                                #
 #                                                                             #
 # Authors: Thomas SELECK and Fabien VAVRAND                                   #
-# e-mail: thomas.seleck@outlook.fr and <unknown>                              #
+# e-mail: thomas.seleck@outlook.fr and fabien.vavrand@gmail.com               #
 # Date: 2018-05-27                                                            #
 # Version: 1.0.0                                                              #
 #                                                                             #

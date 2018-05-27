@@ -8,7 +8,7 @@
 # Developped using Python 3.6.                                                #
 #                                                                             #
 # Author: Fabien VAVRAND                                                      #
-# e-mail: <unknown>                                                           #
+# e-mail: fabien.vavrand@gmail.com                                            #
 # Date: 2018-05-27                                                            #
 # Version: 1.0.0                                                              #
 #                                                                             #
