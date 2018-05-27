@@ -47,7 +47,7 @@ if __name__ == "__main__":
     # Set the seed of numpy's PRNG
     np.random.seed(2017)
 
-    enable_validation = False
+    enable_validation = True
 
     # Load the data; y_test is None when 'enable_validation' is False
     X_train, X_test, y_train, y_test, bureau_data_df, bureau_balance_data_df, credit_card_balance_data_df, installments_payments_data_df, pos_cash_balance_data_df, previous_application_data_df = load_data(TRAINING_DATA_str, TESTING_DATA_str, BUREAU_DATA_str, BUREAU_BALANCE_DATA_str, CREDIT_CARD_BALANCE_DATA_str, INSTALLMENTS_PAYMENTS_DATA_str, POS_CASH_BALANCE_DATA_str, PREVIOUS_APPLICATION_DATA_str, enable_validation, "TARGET", CACHE_DIR_str)
@@ -83,13 +83,13 @@ if __name__ == "__main__":
     }"""
 
     lgb_params = {"boosting_type": "gbdt",
-          "max_depth" : 9,
+          "max_depth" : 7,
           "objective": "binary",
           "num_leaves": 70,
-          "learning_rate": 0.015,
+          "learning_rate": 0.010,
           "max_bin": 512,
           "subsample_for_bin": 200,
-          "subsample": 1,
+          "subsample": 0.8,
           "subsample_freq": 1,
           "colsample_bytree": 0.7,
           "reg_alpha": 5,
@@ -104,6 +104,8 @@ if __name__ == "__main__":
 
     # ("ConstantFeaturesRemover", ConstantFeaturesRemover()), ("DuplicatedFeaturesRemover", DuplicatedFeaturesRemover()),
     # ("PairwiseNumericalInteractionsGenerator", PairwiseNumericalInteractionsGenerator(columns_names_lst = ["AMT_GOODS_PRICE", "FLOORSMAX_MEDI", "EXT_SOURCE_2", "CNT_FAM_MEMBERS", "NONLIVINGAREA_MEDI", "AMT_REQ_CREDIT_BUREAU_MON", "CNT_CHILDREN", "COMMONAREA_AVG", "APARTMENTS_MEDI", "COMMONAREA_MODE", "NONLIVINGAREA_MODE", "ENTRANCES_MEDI", "NONLIVINGAREA_AVG", "AMT_REQ_CREDIT_BUREAU_QRT", "AMT_REQ_CREDIT_BUREAU_WEEK", "APARTMENTS_MODE", "AMT_ANNUITY", "YEARS_BEGINEXPLUATATION_AVG", "ELEVATORS_MEDI", "APARTMENTS_AVG", "BASEMENTAREA_AVG", "FLOORSMIN_MEDI", "YEARS_BEGINEXPLUATATION_MODE", "YEARS_BEGINEXPLUATATION_MEDI", "FLOORSMIN_AVG"])),
+
+    # Put EfficientPipeline instead of Pipeline
     main_pipeline = Pipeline([
                                        ("PreprocessingStep", PreprocessingStep(additional_data_lst = [final_dataset_df])),
                                        ("MissingValuesImputer", MissingValuesImputer(num_col_imputation = -999, cat_col_imputation = "NA")),
@@ -142,3 +144,4 @@ if __name__ == "__main__":
     # Last submission: 25/05/2018, Public LB score: 0.775, local validation score: 0.7804498196917823, best iteration: [927]	training's auc: 0.874475	valid_1's auc: 0.783752
     # Last submission: 25/05/2018, Public LB score: 0.775, local validation score: 0.7830585913439122, best iteration: [1286]	training's auc: 0.900563	valid_1's auc: 0.786186
     # Last submission: 25/05/2018, Public LB score: 0.778, local validation score: 0.7839737433431141, best iteration: [1731]	training's auc: 0.887433	valid_1's auc: 0.786673
+    # 0.7841678868490859

@@ -7,8 +7,8 @@
 # This file contains the code needed for the second preprocessing step.       #
 # Developped using Python 3.6.                                                #
 #                                                                             #
-# Authors: Thomas SELECK and Fabien VAVRAND                                   #
-# e-mail: thomas.seleck@outlook.fr and <unknown>                              #
+# Author: Fabien VAVRAND                                                      #
+# e-mail: <unknown>                                                           #
 # Date: 2018-05-27                                                            #
 # Version: 1.0.0                                                              #
 #                                                                             #

@@ -529,13 +529,12 @@ class CategoricalFeaturesEncoder(BaseEstimator, TransformerMixin):
 
                 if len(tmp_npa.shape) == 2 and tmp_npa.shape[1] > 1:
                     columns_lst = [self.columns_names_lst[idx] + "_" + level for level in self.encoders_lst[idx].classes_]
+
+                    # Add the DataFrame to the existing data
+                    X = pd.concat([X, pd.DataFrame(tmp_npa, index = X.index, columns = columns_lst)], axis = 1)
                 else:
-                    columns_lst = [self.columns_names_lst[idx] + "_" + str(self.encoders_lst[idx]).split("(")[0]]
-
-                tmp_df = pd.DataFrame(tmp_npa, index = X.index, columns = columns_lst)
-
-                # Add the DataFrame to the existing data
-                X = pd.concat([X, tmp_df], axis = 1)
+                    X[self.columns_names_lst[idx] + "_" + str(self.encoders_lst[idx]).split("(")[0]] = tmp_npa
+                                    
             elif isinstance(self.encoders_lst[idx], LeaveOneOutEncoder):
                 X[self.columns_names_lst[idx] + "_" + str(self.encoders_lst[idx]).split("(")[0]] = self.encoders_lst[idx].transform(X[self.columns_names_lst[idx]], y)
             else:

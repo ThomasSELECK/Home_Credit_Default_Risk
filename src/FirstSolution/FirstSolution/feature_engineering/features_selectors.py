@@ -77,12 +77,7 @@ class VarianceFeatureSelector(BaseEstimator, TransformerMixin):
         self: TextStatisticsGenerator object
                 Return current object.
         """
-
-        X = X.replace([-np.inf, np.inf], np.nan)
-        tmp = X.isnull().sum()
-        print("Infinite values:")
-        print(tmp.loc[tmp > 0])
-
+        
         self.selector = VarianceThreshold(self.threshold)
         self.selector.fit(X, y)
 
@@ -102,12 +97,7 @@ class VarianceFeatureSelector(BaseEstimator, TransformerMixin):
         X : pd.DataFrame
                 Transformed data.
         """
-
-        X = X.replace([-np.inf, np.inf], np.nan)
-        tmp = X.isnull().sum()
-        print("Test Infinite values:")
-        print(tmp.loc[tmp > 0])
-
+        
         nb_columns = X.shape[1]
         removed_columns_lst = set(X.columns.tolist())
         X = pd.DataFrame(self.selector.transform(X), index = X.index, columns = X.columns[self.selector.get_support()])
