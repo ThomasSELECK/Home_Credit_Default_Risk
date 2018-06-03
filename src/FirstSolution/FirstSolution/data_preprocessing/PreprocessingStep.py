@@ -116,6 +116,9 @@ class PreprocessingStep(BaseEstimator, TransformerMixin):
         #X["nb_working_years_ge_40"] = (X["nb_working_years"] >= 40).astype(np.int8)
         X["binned_nb_working_years"] = 6 * X["nb_working_years_lt_5"] + 5 * X["nb_working_years_5_10"] + 4 * X["nb_working_years_10_20"] + 3 * X["nb_working_years_20_30"] #+ 2 * X["nb_working_years_30_40"] + X["nb_working_years_ge_40"]
 
+        # Create a dummy indicating if the client has a job
+        X["is_employed"] = (X["DAYS_EMPLOYED"] >= 0).astype(np.int8)
+
         # Compute interactions between income and annuity
         X["diff_income_annuity"] = X["AMT_INCOME_TOTAL"] - X["AMT_ANNUITY"]
         X["annuity_income_ratio"] = X["AMT_ANNUITY"] / X["AMT_INCOME_TOTAL"]
@@ -144,6 +147,23 @@ class PreprocessingStep(BaseEstimator, TransformerMixin):
 
         # Ratio between age and years of work
         X["age_to_work_ratio"] = X["DAYS_EMPLOYED"] / X["DAYS_BIRTH"]
+
+        # Did the client subscribe to an insurance?
+        X["subscribed_to_insurance"] = (X["AMT_CREDIT"] > X["AMT_GOODS_PRICE"]).astype(np.int8)
+        X["insurance_amount"] = X["AMT_CREDIT"] - X["AMT_GOODS_PRICE"]
+        X["insurance_percentage_goods_price"] = (X["insurance_amount"] / X["AMT_GOODS_PRICE"]) * 100
+        X["insurance_percentage_total_amount"] = (X["insurance_amount"] / X["AMT_CREDIT"]) * 100
+        X["insurance_percentage_goods_price_lt_0_or_gt_100"] = ((X["insurance_percentage_goods_price"] < 0) | (X["insurance_percentage_goods_price"] > 100)).astype(np.int8)
+
+        # Distribution of cars older than 60 years are strange. Maybe is a default value
+        X["is_car_older_than_60y"] = (X["OWN_CAR_AGE"] > 60).astype(np.int8)
+
+        # Generate some interactions
+        X["OWN_CAR_AGE_-_DAYS_EMPLOYED"] = X["OWN_CAR_AGE"] - X["DAYS_EMPLOYED"]
+        X["OWN_CAR_AGE_*_DAYS_EMPLOYED"] = X["OWN_CAR_AGE"] * X["DAYS_EMPLOYED"]
+        X["DAYS_ID_PUBLISH_*_DAYS_LAST_PHONE_CHANGE"] = X["DAYS_ID_PUBLISH"] * X["DAYS_LAST_PHONE_CHANGE"]
+        X["DAYS_ID_PUBLISH_-_DAYS_LAST_PHONE_CHANGE"] = X["DAYS_ID_PUBLISH"] - X["DAYS_LAST_PHONE_CHANGE"]
+        X["DAYS_ID_PUBLISH_*_DAYS_LAST_PHONE_CHANGE_*_DAYS_REGISTRATION"] = X["DAYS_ID_PUBLISH"] * X["DAYS_LAST_PHONE_CHANGE"] * X["DAYS_REGISTRATION"]
 
         # Merge additional data to main dataframe
         #X = X.merge(self._final_dataset_df, how = "left", left_index = True, right_on = "SK_ID_CURR")

@@ -9,7 +9,7 @@
 #                                                                             #
 # Author: Thomas SELECK                                                       #
 # e-mail: thomas.seleck@outlook.fr                                            #
-# Date: 2017-12-09                                                            #
+# Date: 2018-03-06                                                            #
 # Version: 1.0.0                                                              #
 ###############################################################################
 
@@ -47,7 +47,7 @@ if __name__ == "__main__":
     # Set the seed of numpy's PRNG
     np.random.seed(2017)
 
-    enable_validation = True
+    enable_validation = False
 
     # Load the data; y_test is None when 'enable_validation' is False
     X_train, X_test, y_train, y_test, bureau_data_df, bureau_balance_data_df, credit_card_balance_data_df, installments_payments_data_df, pos_cash_balance_data_df, previous_application_data_df = load_data(TRAINING_DATA_str, TESTING_DATA_str, BUREAU_DATA_str, BUREAU_BALANCE_DATA_str, CREDIT_CARD_BALANCE_DATA_str, INSTALLMENTS_PAYMENTS_DATA_str, POS_CASH_BALANCE_DATA_str, PREVIOUS_APPLICATION_DATA_str, enable_validation, "TARGET", CACHE_DIR_str)
@@ -112,7 +112,7 @@ if __name__ == "__main__":
                                        ("CategoricalFeaturesEncoder", CategoricalFeaturesEncoder(columns_to_be_encoded_lst, encoders_lst)),
                                        ("VarianceFeatureSelector", VarianceFeatureSelector(3e-5)),
                                        ("LGBMFeatureSelector", LGBMFeatureSelector(threshold = 0.762, problem_type = "classification", enable_cv = False, lgbm_params = lgb_params)),
-                                       ("LightGBM", LGBMClassifier(lgb_params, early_stopping_rounds = 150, test_size = 0.15, verbose_eval = 100, nrounds = 10000, enable_cv = False))
+                                       ("LightGBM", LGBMClassifier(lgb_params, early_stopping_rounds = 150, test_size = 0.15, verbose_eval = 100, nrounds = 10000, enable_cv = True))
                                       ])
     
     # Train the model
@@ -144,4 +144,7 @@ if __name__ == "__main__":
     # Last submission: 25/05/2018, Public LB score: 0.775, local validation score: 0.7804498196917823, best iteration: [927]	training's auc: 0.874475	valid_1's auc: 0.783752
     # Last submission: 25/05/2018, Public LB score: 0.775, local validation score: 0.7830585913439122, best iteration: [1286]	training's auc: 0.900563	valid_1's auc: 0.786186
     # Last submission: 25/05/2018, Public LB score: 0.778, local validation score: 0.7839737433431141, best iteration: [1731]	training's auc: 0.887433	valid_1's auc: 0.786673
-    # 0.7841678868490859
+    # Last submission: 03/06/2018, Public LB score: 0.778, local validation score: 0.78543687251583, best iteration: [3149]	training's auc: 0.886978	valid_1's auc: 0.787719
+    # Last submission: 03/06/2018, Public LB score: 0.779, local validation score: 0.7861441575520606, best iteration: [3151]	training's auc: 0.887514	valid_1's auc: 0.788613
+    # Last submission: 03/06/2018, Public LB score: 0.782, local validation score: 0.786935358973229, best iteration: [3200]	cv_agg's auc: 0.787716 + 0.00251364
+    # Last submission: 03/06/2018, Public LB score: 0.786, local validation score: 0.7872588516887172, best iteration: [3300]	cv_agg's auc: 0.788296 + 0.00260346

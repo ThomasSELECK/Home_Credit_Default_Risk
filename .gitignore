@@ -304,3 +304,5 @@ __pycache__/
 
 # Ignore data
 data/
+.Rproj.user
+.RData

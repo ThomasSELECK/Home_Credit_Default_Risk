@@ -122,7 +122,7 @@ class AbstractLGBMWrapper(ABC, BaseEstimator):
 
             print("    Cross-validating LightGBM with seed: " + str(self.random_state) + "...")
             # If we deal with a regression problem, disable stratified split
-            if self.params["application"] == "regression":
+            if ("application" in self.params and self.params["application"] == "regression") or ("objective" in self.params and self.params["objective"] == "regression"):
                 stratified_split = False
             else:
                 stratified_split = True
