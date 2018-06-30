@@ -131,6 +131,21 @@ class PreprocessingStep(BaseEstimator, TransformerMixin):
 
         # How many adult in the family?
         X["nb_adults"] = X["CNT_FAM_MEMBERS"] - X["CNT_CHILDREN"]
+        X["children_ratio"] = X["CNT_CHILDREN"] / X["CNT_FAM_MEMBERS"]
+        X["income_per_child"] = X["AMT_INCOME_TOTAL"] / (1 + X["CNT_CHILDREN"])
+
+        # Income per person
+        X["income_per_person"] = X["AMT_INCOME_TOTAL"] / X["CNT_FAM_MEMBERS"]
+
+        # Credit amount per person
+        X["credit_amount_per_person"] = X["AMT_CREDIT"] / X["CNT_FAM_MEMBERS"]
+        X["credit_annuity_per_person"] = X["AMT_ANNUITY"] / X["CNT_FAM_MEMBERS"]
+
+        # Number of annuities
+        X["nb_annuities"] = X["AMT_CREDIT"] / X["AMT_ANNUITY"]
+
+        # Age of person at the end of the credit
+        X["credit_end_age"] = X["age"] + X["nb_annuities"]
 
         # Try to deanonymize ELEVATORS features
         X["ELEVATORS_AVG"] = X["ELEVATORS_AVG"] // 0.04
@@ -141,6 +156,45 @@ class PreprocessingStep(BaseEstimator, TransformerMixin):
         X["ENTRANCES_AVG"] = X["ENTRANCES_AVG"] // 0.0345
         X["ENTRANCES_MEDI"] = X["ENTRANCES_MEDI"] // 0.0345
         X["ENTRANCES_MODE"] =X["ENTRANCES_MODE"] // 0.0345
+
+        """
+        # Deanonymize floors-related features ; Strange: FLOORSMIN > FLOORSMAX in most cases
+        X["FLOORSMIN_MODE"] = round(X["FLOORSMIN_MODE"] / 0.0208, 0).astype(np.int8)
+        X["FLOORSMAX_MODE"] = round(X["FLOORSMAX_MODE"] / 0.0208, 0).astype(np.int8)
+        X["FLOORSMIN_MEDI"] = round(X["FLOORSMIN_MEDI"] / 0.0208, 0).astype(np.int8)
+        X["FLOORSMAX_MEDI"] = round(X["FLOORSMAX_MEDI"] / 0.0208, 0).astype(np.int8)
+        X["FLOORSMIN_MEDI"] = round(X["FLOORSMIN_MEDI"] / 0.0208, 0).astype(np.int8)
+        X["FLOORSMAX_MEDI"] = round(X["FLOORSMAX_MEDI"] / 0.0208, 0).astype(np.int8)
+
+        # Deanonymize ELEVATORS features
+        X["ELEVATORS_AVG"] = round(X["ELEVATORS_AVG"] / 0.0403, 0).astype(np.int8)
+        X["ELEVATORS_MEDI"] = round(X["ELEVATORS_MEDI"] / 0.0403, 0).astype(np.int8)
+        X["ELEVATORS_MODE"] = round(X["ELEVATORS_MODE"] / 0.0403, 0).astype(np.int8)
+
+        # Deanonymize ENTRANCES features
+        X["ENTRANCES_AVG"] = round(X["ENTRANCES_AVG"] / 0.0172, 0).astype(np.int8)
+        X["ENTRANCES_MEDI"] = round(X["ENTRANCES_MEDI"] / 0.0172, 0).astype(np.int8)
+        X["ENTRANCES_MODE"] = round(X["ENTRANCES_MODE"] / 0.0172, 0).astype(np.int8)
+
+        # Deanonymize YEARS_BUILD
+        X["YEARS_BUILD_AVG"] = ((round(X["YEARS_BUILD_AVG"] / 0.0004, 0) - 1) / 17).astype(np.int16)
+        X["YEARS_BUILD_MEDI"] = ((round(X["YEARS_BUILD_MEDI"] / 0.0003, 0) - 1) / 22.66667).astype(np.int16)
+        X["YEARS_BUILD_MODE"] = ((round(X["YEARS_BUILD_MODE"] / 0.0003, 0) - 1) / 22.66667).astype(np.int16)
+
+        # Deanonymize NONLIVINGAPARTMENTS
+        X["NONLIVINGAPARTMENTS_MODE"] = round(X["NONLIVINGAPARTMENTS_MODE"] / 0.0039, 0).astype(np.int16)
+        X["NONLIVINGAPARTMENTS_MEDI"] = round(X["NONLIVINGAPARTMENTS_MEDI"] / 0.0019, 0).astype(np.int16)
+        X["NONLIVINGAPARTMENTS_AVG"] = round(X["NONLIVINGAPARTMENTS_AVG"] / 0.0019, 0).astype(np.int16)
+
+        # Deanonymize TOTALAREA
+        X["TOTALAREA_MODE"] = round(X["TOTALAREA_MODE"] / 0.0001, 0).astype(np.int16)
+
+        # Find something for YEARS_BEGINEXPLUATATION_MODE and YEARS_BEGINEXPLUATATION_MEDI
+        # Deanonymize YEARS_BEGINEXPLUATATION features
+        X["YEARS_BEGINEXPLUATATION_AVG"] = round(X["YEARS_BEGINEXPLUATATION_AVG"] / 0.0179, 0).astype(np.int8)
+        X["YEARS_BEGINEXPLUATATION_MEDI"] = round(X["YEARS_BEGINEXPLUATATION_MEDI"] / 0.0179, 0).astype(np.int8)
+        X["YEARS_BEGINEXPLUATATION_MODE"] = ((round(X["YEARS_BEGINEXPLUATATION_MODE"] / 0.0005, 0) - 1) / 35.8).astype(np.int8)
+        """
 
         # Number of documents the client gave
         X["number_of_provided_documents"] = X.filter(regex = "FLAG_DOCUMENT_.*").sum(axis = 1)
@@ -158,16 +212,20 @@ class PreprocessingStep(BaseEstimator, TransformerMixin):
         # Distribution of cars older than 60 years are strange. Maybe is a default value
         X["is_car_older_than_60y"] = (X["OWN_CAR_AGE"] > 60).astype(np.int8)
 
+        X["car_to_birth_ratio"] = X["OWN_CAR_AGE"] / X["DAYS_BIRTH"]
+        X["car_to_employ_ratio"] = X["OWN_CAR_AGE"] / X["DAYS_EMPLOYED"]
+
         # Generate some interactions
-        X["OWN_CAR_AGE_-_DAYS_EMPLOYED"] = X["OWN_CAR_AGE"] - X["DAYS_EMPLOYED"]
+        X["OWN_CAR_AGE_-_DAYS_EMPLOYED"] = X["OWN_CAR_AGE"] * 365.25 - X["DAYS_EMPLOYED"]
         X["OWN_CAR_AGE_*_DAYS_EMPLOYED"] = X["OWN_CAR_AGE"] * X["DAYS_EMPLOYED"]
         X["DAYS_ID_PUBLISH_*_DAYS_LAST_PHONE_CHANGE"] = X["DAYS_ID_PUBLISH"] * X["DAYS_LAST_PHONE_CHANGE"]
         X["DAYS_ID_PUBLISH_-_DAYS_LAST_PHONE_CHANGE"] = X["DAYS_ID_PUBLISH"] - X["DAYS_LAST_PHONE_CHANGE"]
         X["DAYS_ID_PUBLISH_*_DAYS_LAST_PHONE_CHANGE_*_DAYS_REGISTRATION"] = X["DAYS_ID_PUBLISH"] * X["DAYS_LAST_PHONE_CHANGE"] * X["DAYS_REGISTRATION"]
+        X["EXT_SOURCE_1_*_EXT_SOURCE_2_*_EXT_SOURCE_3"] = X["EXT_SOURCE_1"] * X["EXT_SOURCE_2"] * X["EXT_SOURCE_3"]
+        X["ext_sources_mean"] = (X["EXT_SOURCE_1"] + X["EXT_SOURCE_2"] + X["EXT_SOURCE_3"]) / 3
+        X["age_*_nb_annuities"] = X["age"] * X["nb_annuities"]
 
         # Merge additional data to main dataframe
-        #X = X.merge(self._final_dataset_df, how = "left", left_index = True, right_on = "SK_ID_CURR")
-
         #X["SK_ID_CURR"] = X.index
         X = X.reset_index()
         X = X.merge(self._final_dataset_df, how = "left", on = "SK_ID_CURR")

@@ -87,7 +87,7 @@ if __name__ == "__main__":
           "objective": "binary",
           "num_leaves": 70,
           "learning_rate": 0.010,
-          "max_bin": 512,
+          "max_bin": 255,
           "subsample_for_bin": 200,
           "subsample": 0.8,
           "subsample_freq": 1,
@@ -99,7 +99,8 @@ if __name__ == "__main__":
           "min_child_samples": 5,
           "scale_pos_weight": 1,
           "metric" : "auc",
-          "verbosity": -1
+          "verbosity": -1,
+          "device": "gpu"
     }
 
     # ("ConstantFeaturesRemover", ConstantFeaturesRemover()), ("DuplicatedFeaturesRemover", DuplicatedFeaturesRemover()),
@@ -148,3 +149,43 @@ if __name__ == "__main__":
     # Last submission: 03/06/2018, Public LB score: 0.779, local validation score: 0.7861441575520606, best iteration: [3151]	training's auc: 0.887514	valid_1's auc: 0.788613
     # Last submission: 03/06/2018, Public LB score: 0.782, local validation score: 0.786935358973229, best iteration: [3200]	cv_agg's auc: 0.787716 + 0.00251364
     # Last submission: 03/06/2018, Public LB score: 0.786, local validation score: 0.7872588516887172, best iteration: [3300]	cv_agg's auc: 0.788296 + 0.00260346
+    # Last submission: 24/06/2018, Public LB score: 0.785, local validation score: 0.7890342189844852, best iteration: [3300]	cv_agg's auc: 0.789042 + 0.0023899
+    # Last submission: 30/06/2018, Public LB score: 0.791, local validation score: 0.7913583030412702, best iteration: [3000]  cv_agg's auc: 0.791811 + 0.00229
+    # 
+
+"""from sklearn.manifold import TSNE
+
+nb_samples = 5000
+df = X_train[["APARTMENTS_AVG", "APARTMENTS_MEDI", "APARTMENTS_MODE", "BASEMENTAREA_AVG", "BASEMENTAREA_MEDI",
+              "BASEMENTAREA_MODE", "COMMONAREA_AVG", "COMMONAREA_MEDI", "COMMONAREA_MODE", "ELEVATORS_AVG",
+              "ELEVATORS_MEDI", "ELEVATORS_MODE", "EMERGENCYSTATE_MODE", "ENTRANCES_AVG", "ENTRANCES_MEDI", 
+              "ENTRANCES_MODE", "FLOORSMAX_AVG", "FLOORSMAX_MEDI", "FLOORSMAX_MODE", "FLOORSMIN_AVG", 
+              "FLOORSMIN_MEDI", "FLOORSMIN_MODE", "FONDKAPREMONT_MODE", "HOUSETYPE_MODE", "LANDAREA_AVG", 
+              "LANDAREA_MEDI", "LANDAREA_MODE", "LIVINGAPARTMENTS_AVG", "LIVINGAPARTMENTS_MEDI", 
+              "LIVINGAPARTMENTS_MODE", "LIVINGAREA_AVG", "LIVINGAREA_MEDI", "LIVINGAREA_MODE", 
+              "NONLIVINGAPARTMENTS_AVG", "NONLIVINGAPARTMENTS_MEDI", "NONLIVINGAPARTMENTS_MODE", 
+              "NONLIVINGAREA_AVG", "NONLIVINGAREA_MEDI", "NONLIVINGAREA_MODE", "TOTALAREA_MODE", 
+              "WALLSMATERIAL_MODE", "YEARS_BEGINEXPLUATATION_AVG", "YEARS_BEGINEXPLUATATION_MEDI", 
+              "YEARS_BEGINEXPLUATATION_MODE", "YEARS_BUILD_AVG", "YEARS_BUILD_MEDI", "YEARS_BUILD_MODE"]]
+df = df.select_dtypes(include = np.number)
+df.fillna(-1, inplace = True)
+tsne = TSNE(learning_rate = 25, perplexity = 40, n_iter = 4000, early_exaggeration = 5.0)
+tsne_output_df = pd.DataFrame(tsne.fit_transform(df.head(nb_samples), y_train.head(nb_samples)), index = y_train.head(nb_samples).index, columns = ["F1", "F2"])
+tsne_output_df["target"] = y_train.head(nb_samples)
+tsne_output_df.plot.scatter(x = "F1", y = "F2", c = tsne_output_df["target"], cmap = "PiYG", alpha = 0.8)
+plt.show()
+"""
+
+"""
+X_train["target"] = y_train
+X_train2 = pd.concat([X_train.loc[X_train["target"] == 0].sample(5), X_train.loc[X_train["target"] == 1].sample(5)], axis = 0)
+
+bureau_data_df.columns = ["bureau_" + c if c != "SK_ID_CURR" and c != "SK_ID_BUREAU" else c for c in bureau_data_df.columns]
+X_train2 = X_train2.merge(bureau_data_df, how = "left", on = "SK_ID_CURR")
+bureau_balance_data_df.columns = ["bureau_balance_" + c if c != "SK_ID_CURR" and c != "SK_ID_BUREAU" else c for c in bureau_balance_data_df.columns]
+X_train2 = X_train2.merge(bureau_balance_data_df, how = "left", on = "SK_ID_BUREAU")
+
+X_train2 = X_train2.merge(previous_application_data_df, how = "left", on = "SK_ID_CURR")
+X_train2 = X_train2.merge(pos_cash_balance_data_df, how = "left", on = "SK_ID_CURR")
+X_train2 = X_train2.merge(installments_payments_data_df, how = "left", on = "SK_ID_CURR")
+X_train2 = X_train2.merge(credit_card_balance_data_df, how = "left", on = "SK_ID_CURR")"""
