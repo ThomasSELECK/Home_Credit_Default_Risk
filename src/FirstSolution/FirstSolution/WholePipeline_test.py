@@ -47,7 +47,7 @@ if __name__ == "__main__":
     # Set the seed of numpy's PRNG
     np.random.seed(2017)
 
-    enable_validation = False
+    enable_validation = True
 
     # Load the data; y_test is None when 'enable_validation' is False
     X_train, X_test, y_train, y_test, bureau_data_df, bureau_balance_data_df, credit_card_balance_data_df, installments_payments_data_df, pos_cash_balance_data_df, previous_application_data_df = load_data(TRAINING_DATA_str, TESTING_DATA_str, BUREAU_DATA_str, BUREAU_BALANCE_DATA_str, CREDIT_CARD_BALANCE_DATA_str, INSTALLMENTS_PAYMENTS_DATA_str, POS_CASH_BALANCE_DATA_str, PREVIOUS_APPLICATION_DATA_str, enable_validation, "TARGET", CACHE_DIR_str)
@@ -151,7 +151,7 @@ if __name__ == "__main__":
     # Last submission: 03/06/2018, Public LB score: 0.786, local validation score: 0.7872588516887172, best iteration: [3300]	cv_agg's auc: 0.788296 + 0.00260346
     # Last submission: 24/06/2018, Public LB score: 0.785, local validation score: 0.7890342189844852, best iteration: [3300]	cv_agg's auc: 0.789042 + 0.0023899
     # Last submission: 30/06/2018, Public LB score: 0.791, local validation score: 0.7913583030412702, best iteration: [3000]  cv_agg's auc: 0.791811 + 0.00229
-    # 
+    # Last submission: 02/07/2018, Public LB score: 0., local validation score: 0.7915572092049304, best iteration: 
 
 """from sklearn.manifold import TSNE
 

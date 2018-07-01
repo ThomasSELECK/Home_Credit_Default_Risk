@@ -444,7 +444,7 @@ class CategoricalFeaturesEncoder(BaseEstimator, TransformerMixin):
     The purpose of this class is to provide a transformer that encodes categorical features into numerical ones.
     """
     
-    def __init__(self, columns_names_lst, encoders_lst, missing_value_replacement = "NA"):
+    def __init__(self, columns_names_lst, encoders_lst, missing_value_replacement = "NA", drop_initial_features = True):
         """
         Class' constructor
 
@@ -458,6 +458,9 @@ class CategoricalFeaturesEncoder(BaseEstimator, TransformerMixin):
 
         missing_value_replacement : string
                 Value used to replace missing values.
+
+        drop_initial_features : bool
+                Flag indicating whether to drop or not initial features used for encoding.
                 
         Returns
         -------
@@ -470,6 +473,7 @@ class CategoricalFeaturesEncoder(BaseEstimator, TransformerMixin):
         self.columns_names_lst = columns_names_lst
         self.encoders_lst = encoders_lst
         self.missing_value_replacement = missing_value_replacement
+        self.drop_initial_features = drop_initial_features
         
     def fit(self, X, y = None):
         """
@@ -541,7 +545,8 @@ class CategoricalFeaturesEncoder(BaseEstimator, TransformerMixin):
                 X[self.columns_names_lst[idx] + "_" + str(self.encoders_lst[idx]).split("(")[0]] = self.encoders_lst[idx].transform(X[self.columns_names_lst[idx]])
 
         # Drop the initial features
-        X.drop(list(set(self.columns_names_lst)), axis = 1, inplace = True)
+        if self.drop_initial_features:
+            X.drop(list(set(self.columns_names_lst)), axis = 1, inplace = True)
 
         print("CategoricalFeaturesEncoder transformed", len(self.columns_names_lst), "categorical features in", round(time.time() - start_time, 3), "seconds.")
 

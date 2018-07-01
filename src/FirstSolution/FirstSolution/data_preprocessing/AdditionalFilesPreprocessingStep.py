@@ -113,8 +113,8 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
         self._pos_cash_balance_encoders_lst = [OrdinalEncoder() for _ in self._pos_cash_balance_categ_feats_lst]
 
         self._previous_application_cfe = CategoricalFeaturesEncoder(self._previous_application_categ_feats_lst, self._previous_application_encoders_lst)
-        self._bureau_cfe = CategoricalFeaturesEncoder(self._bureau_categ_feats_lst, self._bureau_encoders_lst)
-        self._credit_card_balance_cfe = CategoricalFeaturesEncoder(self._credit_card_balance_categ_feats_lst, self._credit_card_balance_encoders_lst)
+        self._bureau_cfe = CategoricalFeaturesEncoder(self._bureau_categ_feats_lst, self._bureau_encoders_lst, drop_initial_features = False)
+        self._credit_card_balance_cfe = CategoricalFeaturesEncoder(self._credit_card_balance_categ_feats_lst, self._credit_card_balance_encoders_lst, drop_initial_features = False)
         self._pos_cash_balance_cfe = CategoricalFeaturesEncoder(self._pos_cash_balance_categ_feats_lst, self._pos_cash_balance_encoders_lst)
 
         # Processing 'bureau.csv'
@@ -193,29 +193,20 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
         # Processing 'bureau.csv'
         print("    Pre-processing 'bureau.csv'...")
 
-        # Computing credit profile for each customer
-        ## Number of past loans per customer
-        grp = bureau_data_df[["SK_ID_CURR", "DAYS_CREDIT"]].groupby(by = ["SK_ID_CURR"])["DAYS_CREDIT"].count().reset_index().rename(index = str, columns = {"DAYS_CREDIT": "BUREAU_LOAN_COUNT"})
-        bureau_data_df = bureau_data_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
+        # Encode categorical features
+        bureau_data_df = self._bureau_cfe.transform(bureau_data_df)
 
-        ## Number of types of past loans per customer
-        grp = bureau_data_df[["SK_ID_CURR", "CREDIT_TYPE"]].groupby(by = ["SK_ID_CURR"])["CREDIT_TYPE"].nunique().reset_index().rename(index = str, columns = {"CREDIT_TYPE": "BUREAU_LOAN_TYPES"})
-        bureau_data_df = bureau_data_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
+        # Impute NAs
+        bureau_data_df[["AMT_CREDIT_SUM_DEBT", "AMT_CREDIT_SUM_LIMIT", "AMT_CREDIT_MAX_OVERDUE"]].fillna(0, inplace = True)
 
-        ## Average number of past loans per type of loan per customer
-        ### Average Number of Loans per Loan Type
-        bureau_data_df["AVERAGE_LOAN_TYPE"] = bureau_data_df["BUREAU_LOAN_COUNT"] / bureau_data_df["BUREAU_LOAN_TYPES"]        
-        gc.collect()
+        ## Credit duration
+        bureau_data_df["credit_duration"] = bureau_data_df["DAYS_CREDIT_ENDDATE"] - bureau_data_df["DAYS_CREDIT"]
 
-        ## Percentage of loans that are active per customer
-        ### Create a new dummy column for whether CREDIT is ACTIVE OR CLOSED 
-        bureau_data_df["CREDIT_ACTIVE_BINARY"] = (bureau_data_df["CREDIT_ACTIVE"].apply(lambda x: int(x != "Closed"))).astype(np.int8)
-        
-        ### Calculate mean number of loans that are ACTIVE per CUSTOMER 
-        grp = bureau_data_df.groupby(by = ["SK_ID_CURR"])["CREDIT_ACTIVE_BINARY"].mean().reset_index().rename(index = str, columns = {"CREDIT_ACTIVE_BINARY": "ACTIVE_LOANS_PERCENTAGE"})
-        bureau_data_df = bureau_data_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
-        bureau_data_df.drop("CREDIT_ACTIVE_BINARY", axis = 1, inplace = True)
-        gc.collect()
+        ## Number of days credit ends after initial end date
+        bureau_data_df["nb_days_after_enddate"] = bureau_data_df["DAYS_ENDDATE_FACT"] - bureau_data_df["DAYS_CREDIT_ENDDATE"]
+
+        ## Credit usage
+        bureau_data_df["credit_usage"] = bureau_data_df["AMT_CREDIT_SUM_DEBT"] / bureau_data_df["AMT_CREDIT_SUM_LIMIT"]
 
         # How was credit consumed in the past
         ## Average number of days between successive past applications for each customer
@@ -232,25 +223,11 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
 
         bureau_data_df = bureau_data_df.merge(grp1, on = ["SK_ID_BUREAU"], how = "left")
 
-        ## Percentage of loans per customer where end data for credit is past
-        bureau_data_df["CREDIT_ENDDATE_BINARY"] = (bureau_data_df["DAYS_CREDIT_ENDDATE"].apply(lambda x: int(x >= 0))).astype(np.int8)
-        grp = bureau_data_df.groupby(by = ["SK_ID_CURR"])["CREDIT_ENDDATE_BINARY"].mean().reset_index().rename(index = str, columns = {"CREDIT_ENDDATE_BINARY": "CREDIT_ENDDATE_PERCENTAGE"})
-        bureau_data_df = bureau_data_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
-        gc.collect()
-
-        ## Credit duration
-        bureau_data_df["credit_duration"] = bureau_data_df["DAYS_CREDIT_ENDDATE"] - bureau_data_df["DAYS_CREDIT"]
-
-        ## Number of days credit ends after initial end date
-        bureau_data_df["nb_days_after_enddate"] = bureau_data_df["DAYS_ENDDATE_FACT"] - bureau_data_df["DAYS_CREDIT_ENDDATE"]
-
-        ## Credit usage
-        bureau_data_df["credit_usage"] = bureau_data_df["AMT_CREDIT_SUM_DEBT"] / bureau_data_df["AMT_CREDIT_SUM_LIMIT"]
-
         # Potential future delinquencies
         ## Average number of days in which credit expires in the future        
         ### We take only positive values of ENDDATE since we are looking at Bureau Credit VALID IN FUTURE 
         ### as of the date of the customer"s loan application with Home Credit 
+        bureau_data_df["CREDIT_ENDDATE_BINARY"] = (bureau_data_df["DAYS_CREDIT_ENDDATE"].apply(lambda x: int(x >= 0))).astype(np.int8)
         B1 = bureau_data_df[bureau_data_df["CREDIT_ENDDATE_BINARY"] == 1]
 
         ### Calculate Difference in successive future end dates of CREDIT 
@@ -272,9 +249,47 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
         del grp1
         gc.collect()
 
+        # Compute average values and counts
+        bureau_stats_df = self._flatten_columns_names(bureau_data_df.select_dtypes(include = np.number).drop("SK_ID_BUREAU", axis = 1).groupby("SK_ID_CURR").agg(["mean", "std", "min", "max", "sum", "nunique"]))
+        bureau_stats_df["bureau_count"] = bureau_data_df[["SK_ID_BUREAU", "SK_ID_CURR"]].groupby("SK_ID_CURR").count()["SK_ID_BUREAU"]
+        bureau_stats_df["nb_bureau_records"] = bureau_data_df.groupby("SK_ID_CURR").size()
+
+        # Computing credit profile for each customer
+        ## Number of past loans per customer
+        grp = bureau_data_df[["SK_ID_CURR", "DAYS_CREDIT"]].groupby(by = ["SK_ID_CURR"])["DAYS_CREDIT"].count().reset_index().rename(index = str, columns = {"DAYS_CREDIT": "BUREAU_LOAN_COUNT"})
+        bureau_stats_df = bureau_stats_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
+
+        ## Number of types of past loans per customer
+        grp = bureau_data_df[["SK_ID_CURR", "CREDIT_TYPE"]].groupby(by = ["SK_ID_CURR"])["CREDIT_TYPE"].nunique().reset_index().rename(index = str, columns = {"CREDIT_TYPE": "BUREAU_LOAN_TYPES"})
+        bureau_stats_df = bureau_stats_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
+
+        ## Average number of past loans per type of loan per customer
+        ### Average Number of Loans per Loan Type
+        bureau_stats_df["AVERAGE_LOAN_TYPE"] = bureau_stats_df["BUREAU_LOAN_COUNT"] / bureau_stats_df["BUREAU_LOAN_TYPES"]        
+        gc.collect()
+
+        ## Percentage of loans that are active per customer
+        ### Create a new dummy column for whether CREDIT is ACTIVE OR CLOSED 
+        bureau_data_df["CREDIT_ACTIVE_BINARY"] = (bureau_data_df["CREDIT_ACTIVE"].apply(lambda x: int(x != "Closed"))).astype(np.int8)
+        
+        ### Calculate mean number of loans that are ACTIVE per CUSTOMER 
+        grp = bureau_data_df.groupby(by = ["SK_ID_CURR"])["CREDIT_ACTIVE_BINARY"].mean().reset_index().rename(index = str, columns = {"CREDIT_ACTIVE_BINARY": "ACTIVE_LOANS_PERCENTAGE"})
+        bureau_stats_df = bureau_stats_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
+        #bureau_stats_df.drop("CREDIT_ACTIVE_BINARY", axis = 1, inplace = True)
+        gc.collect()
+
+        # How was credit consumed in the past
+        ## Percentage of loans per customer where end data for credit is past
+        bureau_data_df["CREDIT_ENDDATE_BINARY"] = (bureau_data_df["DAYS_CREDIT_ENDDATE"].apply(lambda x: int(x >= 0))).astype(np.int8)
+        grp = bureau_data_df.groupby(by = ["SK_ID_CURR"])["CREDIT_ENDDATE_BINARY"].mean().reset_index().rename(index = str, columns = {"CREDIT_ENDDATE_BINARY": "CREDIT_ENDDATE_PERCENTAGE"})
+        bureau_stats_df = bureau_stats_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
+        gc.collect()
+
+        # Potential future delinquencies
+        ## Average number of days in which credit expires in the future      
         ### Calculate Average of DAYS_ENDDATE_DIFF
         grp = bureau_data_df[["SK_ID_CURR", "DAYS_ENDDATE_DIFF"]].groupby(by = ["SK_ID_CURR"])["DAYS_ENDDATE_DIFF"].mean().reset_index().rename(index = str, columns = {"DAYS_ENDDATE_DIFF": "AVG_ENDDATE_FUTURE"})
-        bureau_data_df = bureau_data_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
+        bureau_stats_df = bureau_stats_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
         del grp 
         bureau_data_df.drop(["CREDIT_ENDDATE_BINARY"], axis = 1, inplace = True)
         gc.collect()
@@ -286,50 +301,40 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
         grp1 = bureau_data_df[["SK_ID_CURR", "AMT_CREDIT_SUM_DEBT"]].groupby(by = ["SK_ID_CURR"])["AMT_CREDIT_SUM_DEBT"].sum().reset_index().rename(index = str, columns = { "AMT_CREDIT_SUM_DEBT": "TOTAL_CUSTOMER_DEBT"})
         grp2 = bureau_data_df[["SK_ID_CURR", "AMT_CREDIT_SUM"]].groupby(by = ["SK_ID_CURR"])["AMT_CREDIT_SUM"].sum().reset_index().rename(index = str, columns = { "AMT_CREDIT_SUM": "TOTAL_CUSTOMER_CREDIT"})
 
-        bureau_data_df = bureau_data_df.merge(grp1, on = ["SK_ID_CURR"], how = "left")
-        bureau_data_df = bureau_data_df.merge(grp2, on = ["SK_ID_CURR"], how = "left")
+        bureau_stats_df = bureau_stats_df.merge(grp1, on = ["SK_ID_CURR"], how = "left")
+        bureau_stats_df = bureau_stats_df.merge(grp2, on = ["SK_ID_CURR"], how = "left")
         del grp2
         gc.collect()
 
-        bureau_data_df["DEBT_CREDIT_RATIO"] = bureau_data_df["TOTAL_CUSTOMER_DEBT"] / bureau_data_df["TOTAL_CUSTOMER_CREDIT"]
+        bureau_stats_df["DEBT_CREDIT_RATIO"] = bureau_stats_df["TOTAL_CUSTOMER_DEBT"] / bureau_stats_df["TOTAL_CUSTOMER_CREDIT"]
 
         ## Total amount of active credit
         bureau_data_df["ACTIVE_AMT_CREDIT_SUM"] = bureau_data_df["AMT_CREDIT_SUM"] * (bureau_data_df["CREDIT_ACTIVE"].apply(lambda x: int(x != "Closed"))).astype(np.int8)
         grp1 = bureau_data_df[["SK_ID_CURR", "ACTIVE_AMT_CREDIT_SUM"]].groupby(by = ["SK_ID_CURR"])["ACTIVE_AMT_CREDIT_SUM"].sum().reset_index().rename(index = str, columns = { "ACTIVE_AMT_CREDIT_SUM": "TOTAL_ACTIVE_CUSTOMER_CREDIT"})
-        bureau_data_df = bureau_data_df.merge(grp1, on = ["SK_ID_CURR"], how = "left")
+        bureau_stats_df = bureau_stats_df.merge(grp1, on = ["SK_ID_CURR"], how = "left")
 
         ## Total amount of active annuity
         bureau_data_df["AMT_ANNUITY"] = bureau_data_df["AMT_ANNUITY"].fillna(0)
         bureau_data_df["ACTIVE_AMT_ANNUITY"] = bureau_data_df["AMT_ANNUITY"] * (bureau_data_df["CREDIT_ACTIVE"].apply(lambda x: int(x != "Closed"))).astype(np.int8)
         grp1 = bureau_data_df[["SK_ID_CURR", "ACTIVE_AMT_ANNUITY"]].groupby(by = ["SK_ID_CURR"])["ACTIVE_AMT_ANNUITY"].sum().reset_index().rename(index = str, columns = { "ACTIVE_AMT_ANNUITY": "TOTAL_ACTIVE_AMT_ANNUITY"})
-        bureau_data_df = bureau_data_df.merge(grp1, on = ["SK_ID_CURR"], how = "left")
+        bureau_stats_df = bureau_stats_df.merge(grp1, on = ["SK_ID_CURR"], how = "left")
         
         ## Fraction of total debt overdue for each customer
         bureau_data_df["AMT_CREDIT_SUM_OVERDUE"] = bureau_data_df["AMT_CREDIT_SUM_OVERDUE"].fillna(0)
 
         grp2 = bureau_data_df[["SK_ID_CURR", "AMT_CREDIT_SUM_OVERDUE"]].groupby(by = ["SK_ID_CURR"])["AMT_CREDIT_SUM_OVERDUE"].sum().reset_index().rename(index = str, columns = { "AMT_CREDIT_SUM_OVERDUE": "TOTAL_CUSTOMER_OVERDUE"})
 
-        bureau_data_df = bureau_data_df.merge(grp2, on = ["SK_ID_CURR"], how = "left")
+        bureau_stats_df = bureau_stats_df.merge(grp2, on = ["SK_ID_CURR"], how = "left")
         del grp1, grp2
         gc.collect()
 
-        bureau_data_df["OVERDUE_DEBT_RATIO"] = bureau_data_df["TOTAL_CUSTOMER_OVERDUE"] / bureau_data_df["TOTAL_CUSTOMER_DEBT"]
+        bureau_stats_df["OVERDUE_DEBT_RATIO"] = bureau_stats_df["TOTAL_CUSTOMER_OVERDUE"] / bureau_stats_df["TOTAL_CUSTOMER_DEBT"]
         
         ## Average number of loans prolonged
         bureau_data_df["CNT_CREDIT_PROLONG"] = bureau_data_df["CNT_CREDIT_PROLONG"].fillna(0)
         grp = bureau_data_df[["SK_ID_CURR", "CNT_CREDIT_PROLONG"]].groupby(by = ["SK_ID_CURR"])["CNT_CREDIT_PROLONG"].mean().reset_index().rename(index = str, columns = { "CNT_CREDIT_PROLONG": "AVG_CREDITDAYS_PROLONGED"})
-        bureau_data_df = bureau_data_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
-
-        # Encode categorical features
-        bureau_data_df = self._bureau_cfe.transform(bureau_data_df)
-
-        # Impute NAs
-        bureau_data_df[["AMT_CREDIT_SUM_DEBT", "AMT_CREDIT_SUM_LIMIT", "AMT_CREDIT_MAX_OVERDUE"]].fillna(0, inplace = True)
+        bureau_stats_df = bureau_stats_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
                 
-        # Compute average values and counts
-        bureau_stats_df = self._flatten_columns_names(bureau_data_df.select_dtypes(include = np.number).drop("SK_ID_BUREAU", axis = 1).groupby("SK_ID_CURR").agg(["mean", "std", "min", "max", "sum", "nunique"]))
-        bureau_stats_df["bureau_count"] = bureau_data_df[["SK_ID_BUREAU", "SK_ID_CURR"]].groupby("SK_ID_CURR").count()["SK_ID_BUREAU"]
-        bureau_stats_df["nb_bureau_records"] = bureau_data_df.groupby("SK_ID_CURR").size()
         """avg_buro["avg_nb_records_by_bureau"] = bureau_data_df.groupby(["SK_ID_CURR", "SK_ID_BUREAU"]).size().groupby("SK_ID_CURR").mean()
         avg_buro["max_nb_records_by_bureau"] = bureau_data_df.groupby(["SK_ID_CURR", "SK_ID_BUREAU"]).size().groupby("SK_ID_CURR").max()
         avg_buro["min_nb_records_by_bureau"] = bureau_data_df.groupby(["SK_ID_CURR", "SK_ID_BUREAU"]).size().groupby("SK_ID_CURR").min()
@@ -345,7 +350,7 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
         #bureau_stats_df.drop("SK_ID_BUREAU", axis = 1, inplace = True)
 
         # Add prefix to columns
-        bureau_stats_df.columns = ["bureau_" + c for c in bureau_stats_df.columns.tolist()]
+        bureau_stats_df.columns = ["bureau_" + c if c != "SK_ID_CURR" else c for c in bureau_stats_df.columns.tolist()]
 
         # Processing 'previous_application.csv'
         print("    Pre-processing 'previous_application.csv'...")
@@ -361,18 +366,25 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
         # Compute average values and counts
         previous_application_stats_df = self._flatten_columns_names(previous_application_data_df.select_dtypes(include = np.number).drop("SK_ID_PREV", axis = 1).groupby("SK_ID_CURR").agg(["mean", "std", "min", "max", "sum", "nunique"]))
         previous_application_stats_df["nb_app"] = previous_application_data_df[["SK_ID_CURR", "SK_ID_PREV"]].groupby("SK_ID_CURR").count()["SK_ID_PREV"]
-        #previous_application_stats_df.drop("SK_ID_PREV", axis = 1, inplace = True)
 
         # Add prefix to columns
-        previous_application_stats_df.columns = ["previous_application_" + c for c in previous_application_stats_df.columns.tolist()]
+        previous_application_stats_df.columns = ["previous_application_" + c if c != "SK_ID_CURR" else c for c in previous_application_stats_df.columns.tolist()]
 
         # Processing 'credit_card_balance.csv'
         print("    Pre-processing 'credit_card_balance.csv'...")
 
+        # Encode categorical features
+        credit_card_balance_data_df = self._credit_card_balance_cfe.transform(credit_card_balance_data_df)
+
+        # Compute average values and counts
+        card_balance_stats_df = self._flatten_columns_names(credit_card_balance_data_df.select_dtypes(include = np.number).drop("SK_ID_PREV", axis = 1).groupby("SK_ID_CURR").agg(["mean", "std", "min", "max", "sum", "nunique"]))
+        card_balance_stats_df["nb_ccb"] = credit_card_balance_data_df[["SK_ID_CURR", "SK_ID_PREV"]].groupby("SK_ID_CURR").count()["SK_ID_PREV"]
+        #card_balance_stats_df.drop("SK_ID_PREV", axis = 1, inplace = True)
+
         # Customer risk profile
         ## Number of loans per customer
         grp = credit_card_balance_data_df.groupby(by = ["SK_ID_CURR"])["SK_ID_PREV"].nunique().reset_index().rename(index = str, columns = {"SK_ID_PREV": "NO_LOANS"})
-        credit_card_balance_data_df = credit_card_balance_data_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
+        card_balance_stats_df = card_balance_stats_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
         del grp 
         gc.collect()
 
@@ -380,10 +392,10 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
         ### No of Installments paid per Loan per Customer 
         grp = credit_card_balance_data_df.groupby(by = ["SK_ID_CURR", "SK_ID_PREV"])["CNT_INSTALMENT_MATURE_CUM"].max().reset_index().rename(index = str, columns = {"CNT_INSTALMENT_MATURE_CUM": "NO_INSTALMENTS"})
         grp1 = grp.groupby(by = ["SK_ID_CURR"])["NO_INSTALMENTS"].sum().reset_index().rename(index = str, columns = {"NO_INSTALMENTS": "TOTAL_INSTALMENTS"})
-        credit_card_balance_data_df = credit_card_balance_data_df.merge(grp1, on = ["SK_ID_CURR"], how = "left")
+        card_balance_stats_df = card_balance_stats_df.merge(grp1, on = ["SK_ID_CURR"], how = "left")
 
         ### Average Number of installments paid per loan 
-        credit_card_balance_data_df["INSTALLMENTS_PER_LOAN"] = (credit_card_balance_data_df["TOTAL_INSTALMENTS"] / credit_card_balance_data_df["NO_LOANS"]).astype("uint32")
+        card_balance_stats_df["INSTALLMENTS_PER_LOAN"] = (card_balance_stats_df["TOTAL_INSTALMENTS"] / card_balance_stats_df["NO_LOANS"]).astype("uint32")
 
         ## How much did the customer load a credit line
         credit_card_balance_data_df["AMT_CREDIT_LIMIT_ACTUAL1"] = credit_card_balance_data_df["AMT_CREDIT_LIMIT_ACTUAL"]
@@ -395,7 +407,7 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
 
         ### We now calculate the mean Credit load of All Loan transactions of Customer 
         grp1 = grp.groupby(by = ["SK_ID_CURR"])["CREDIT_LOAD1"].mean().reset_index().rename(index = str, columns = {"CREDIT_LOAD1": "CREDIT_LOAD"})
-        credit_card_balance_data_df = credit_card_balance_data_df.merge(grp1, on = ["SK_ID_CURR"], how = "left")
+        card_balance_stats_df = card_balance_stats_df.merge(grp1, on = ["SK_ID_CURR"], how = "left")
         del grp, grp1
         gc.collect()
         
@@ -403,68 +415,60 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
         grp = credit_card_balance_data_df.groupby(by = ["SK_ID_CURR", "SK_ID_PREV"]).apply(lambda x: (x["SK_DPD"] != 0).astype(np.int8).sum()).reset_index().rename(index = str, columns = {0: "NO_DPD"})
         grp1 = grp.groupby(by = ["SK_ID_CURR"])["NO_DPD"].mean().reset_index().rename(index = str, columns = {"NO_DPD" : "DPD_COUNT"})
 
-        credit_card_balance_data_df = credit_card_balance_data_df.merge(grp1, on = ["SK_ID_CURR"], how = "left")
+        card_balance_stats_df = card_balance_stats_df.merge(grp1, on = ["SK_ID_CURR"], how = "left")
         del grp, grp1 
         gc.collect()
 
         ## What is the average number of days did customer go past due date
         grp = credit_card_balance_data_df.groupby(by = ["SK_ID_CURR"])["SK_DPD"].mean().reset_index().rename(index = str, columns = {"SK_DPD": "AVG_DPD"})
-        credit_card_balance_data_df = credit_card_balance_data_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
+        card_balance_stats_df = card_balance_stats_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
         del grp 
         gc.collect()
 
         ## What fraction of minimum payments were missed
         grp = credit_card_balance_data_df.groupby(by = ["SK_ID_CURR"]).apply(lambda x: (100 * (x["AMT_INST_MIN_REGULARITY"] < x["AMT_PAYMENT_CURRENT"]).astype(np.int8).sum()) / x["AMT_INST_MIN_REGULARITY"].shape[0]).reset_index().rename(index = str, columns = { 0 : "PERCENTAGE_MISSED_PAYMENTS"})
-        credit_card_balance_data_df = credit_card_balance_data_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
+        card_balance_stats_df = card_balance_stats_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
         del grp 
         gc.collect()
 
         # Customer behavior patterns
         ## Cash withdrawals VS overall spending ratio
         grp = credit_card_balance_data_df.groupby(by = ["SK_ID_CURR"])["AMT_DRAWINGS_ATM_CURRENT"].sum().reset_index().rename(index = str, columns = {"AMT_DRAWINGS_ATM_CURRENT" : "DRAWINGS_ATM"})
-        credit_card_balance_data_df = credit_card_balance_data_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
+        card_balance_stats_df = card_balance_stats_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
 
         grp = credit_card_balance_data_df.groupby(by = ["SK_ID_CURR"])["AMT_DRAWINGS_CURRENT"].sum().reset_index().rename(index = str, columns = {"AMT_DRAWINGS_CURRENT" : "DRAWINGS_TOTAL"})
-        credit_card_balance_data_df = credit_card_balance_data_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
+        card_balance_stats_df = card_balance_stats_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
 
-        credit_card_balance_data_df["CASH_CARD_RATIO1"] = (credit_card_balance_data_df["DRAWINGS_ATM"] / credit_card_balance_data_df["DRAWINGS_TOTAL"]) * 100
+        card_balance_stats_df["CASH_CARD_RATIO"] = (card_balance_stats_df["DRAWINGS_ATM"] / card_balance_stats_df["DRAWINGS_TOTAL"]) * 100
 
-        grp = credit_card_balance_data_df.groupby(by = ["SK_ID_CURR"])["CASH_CARD_RATIO1"].mean().reset_index().rename(index = str, columns = {"CASH_CARD_RATIO1" : "CASH_CARD_RATIO"})
-        credit_card_balance_data_df = credit_card_balance_data_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
+        """grp = credit_card_balance_data_df.groupby(by = ["SK_ID_CURR"])["CASH_CARD_RATIO1"].mean().reset_index().rename(index = str, columns = {"CASH_CARD_RATIO1" : "CASH_CARD_RATIO"})
+        card_balance_stats_df = card_balance_stats_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
         del grp
-        gc.collect()
+        gc.collect()"""
 
         ## Avg number of drawings per customer; Total drawings / Number of drawings
         grp = credit_card_balance_data_df.groupby(by = ["SK_ID_CURR"])["AMT_DRAWINGS_CURRENT"].sum().reset_index().rename(index = str, columns = {"AMT_DRAWINGS_CURRENT" : "TOTAL_DRAWINGS"})
-        credit_card_balance_data_df = credit_card_balance_data_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
+        card_balance_stats_df = card_balance_stats_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
         del grp
         gc.collect()
 
         grp = credit_card_balance_data_df.groupby(by = ["SK_ID_CURR"])["CNT_DRAWINGS_CURRENT"].sum().reset_index().rename(index = str, columns = {"CNT_DRAWINGS_CURRENT" : "NO_DRAWINGS"})
-        credit_card_balance_data_df = credit_card_balance_data_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
+        card_balance_stats_df = card_balance_stats_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
         del grp
         gc.collect()
 
-        credit_card_balance_data_df["DRAWINGS_RATIO1"] = (credit_card_balance_data_df["TOTAL_DRAWINGS"] / credit_card_balance_data_df["NO_DRAWINGS"]) * 100
+        card_balance_stats_df["DRAWINGS_RATIO"] = (card_balance_stats_df["TOTAL_DRAWINGS"] / card_balance_stats_df["NO_DRAWINGS"]) * 100
         
-        grp = credit_card_balance_data_df.groupby(by = ["SK_ID_CURR"])["DRAWINGS_RATIO1"].mean().reset_index().rename(index = str, columns = {"DRAWINGS_RATIO1" : "DRAWINGS_RATIO"})
+        """grp = credit_card_balance_data_df.groupby(by = ["SK_ID_CURR"])["DRAWINGS_RATIO1"].mean().reset_index().rename(index = str, columns = {"DRAWINGS_RATIO1" : "DRAWINGS_RATIO"})
         credit_card_balance_data_df = credit_card_balance_data_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
         del grp 
-        gc.collect()
+        gc.collect()"""
 
-        credit_card_balance_data_df["NUNIQUE_STATUS"] = credit_card_balance_data_df[["SK_ID_CURR", "NAME_CONTRACT_STATUS"]].groupby("SK_ID_CURR").nunique()["NAME_CONTRACT_STATUS"]
-        credit_card_balance_data_df["NUNIQUE_STATUS2"] = credit_card_balance_data_df[["SK_ID_CURR", "NAME_CONTRACT_STATUS"]].groupby("SK_ID_CURR").max()["NAME_CONTRACT_STATUS"]
-
-        # Encode categorical features
-        credit_card_balance_data_df = self._credit_card_balance_cfe.transform(credit_card_balance_data_df)
-
-        # Compute average values and counts
-        card_balance_stats_df = self._flatten_columns_names(credit_card_balance_data_df.select_dtypes(include = np.number).drop("SK_ID_PREV", axis = 1).groupby("SK_ID_CURR").agg(["mean", "std", "min", "max", "sum", "nunique"]))
-        card_balance_stats_df["nb_ccb"] = credit_card_balance_data_df[["SK_ID_CURR", "SK_ID_PREV"]].groupby("SK_ID_CURR").count()["SK_ID_PREV"]
-        #card_balance_stats_df.drop("SK_ID_PREV", axis = 1, inplace = True)
+        """credit_card_balance_data_df["NUNIQUE_STATUS"] = credit_card_balance_data_df[["SK_ID_CURR", "NAME_CONTRACT_STATUS"]].groupby("SK_ID_CURR").nunique()["NAME_CONTRACT_STATUS"]
+        credit_card_balance_data_df["NUNIQUE_STATUS2"] = credit_card_balance_data_df[["SK_ID_CURR", "NAME_CONTRACT_STATUS"]].groupby("SK_ID_CURR").max()["NAME_CONTRACT_STATUS"]"""
 
         # Add prefix to columns
-        card_balance_stats_df.columns = ["credit_card_balance_" + c for c in card_balance_stats_df.columns.tolist()]
+        card_balance_stats_df.columns = ["credit_card_balance_" + c if c != "SK_ID_CURR" else c for c in card_balance_stats_df.columns.tolist()]
         
         # Processing 'pos_cash_balance.csv'
         print("    Pre-processing 'pos_cash_balance.csv'...")
@@ -499,11 +503,13 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
         # Add prefix to columns
         installments_payments_stats_df.columns = ["installments_payments_" + c for c in installments_payments_stats_df.columns.tolist()]
                 
-        final_dataset_df = previous_application_stats_df.reset_index().merge(bureau_stats_df.reset_index(), how = "left", on = "SK_ID_CURR")
-        final_dataset_df = final_dataset_df.merge(card_balance_stats_df.reset_index(), how = "left", on = "SK_ID_CURR")
+        final_dataset_df = previous_application_stats_df.reset_index().merge(bureau_stats_df, how = "left", on = "SK_ID_CURR")
+        final_dataset_df = final_dataset_df.merge(card_balance_stats_df, how = "left", on = "SK_ID_CURR")
         final_dataset_df = final_dataset_df.merge(pos_cash_balance_stats_df.reset_index(), how = "left", on = "SK_ID_CURR")
         final_dataset_df = final_dataset_df.merge(installments_payments_stats_df.reset_index(), how = "left", on = "SK_ID_CURR")
         print("Additional files preprocessing data... done")
+
+        print("*** Total additional features:", final_dataset_df.shape[1], "***")
 
         #return bureau_data_df, bureau_balance_data_df, credit_card_balance_data_df, installments_payments_data_df, pos_cash_balance_data_df, previous_application_data_df
         return final_dataset_df

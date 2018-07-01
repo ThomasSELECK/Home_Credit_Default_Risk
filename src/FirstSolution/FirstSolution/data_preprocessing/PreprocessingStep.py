@@ -226,6 +226,7 @@ class PreprocessingStep(BaseEstimator, TransformerMixin):
         X["age_*_nb_annuities"] = X["age"] * X["nb_annuities"]
 
         # Merge additional data to main dataframe
+        print("    Merging additional data to main dataframe...")
         #X["SK_ID_CURR"] = X.index
         X = X.reset_index()
         X = X.merge(self._final_dataset_df, how = "left", on = "SK_ID_CURR")
