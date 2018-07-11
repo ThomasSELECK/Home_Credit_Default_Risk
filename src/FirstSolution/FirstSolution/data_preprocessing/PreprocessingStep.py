@@ -141,6 +141,11 @@ class PreprocessingStep(BaseEstimator, TransformerMixin):
         X["credit_amount_per_person"] = X["AMT_CREDIT"] / X["CNT_FAM_MEMBERS"]
         X["credit_annuity_per_person"] = X["AMT_ANNUITY"] / X["CNT_FAM_MEMBERS"]
 
+        """
+        # Remaining cash per person
+        X["remaining_cash_per_person"] = (X["AMT_INCOME_TOTAL"] - X["AMT_ANNUITY"]) / X["CNT_FAM_MEMBERS"]
+        """
+
         # Number of annuities
         X["nb_annuities"] = X["AMT_CREDIT"] / X["AMT_ANNUITY"]
 
@@ -234,6 +239,16 @@ class PreprocessingStep(BaseEstimator, TransformerMixin):
                 
         # Drop ID        
         X.drop("SK_ID_CURR", axis = 1, inplace = True)
+
+        """
+        X["total_credit_amount"] = X["bureau_TOTAL_ACTIVE_CUSTOMER_CREDIT"] + X["AMT_CREDIT"]
+        X["total_annuity"] = X["bureau_TOTAL_ACTIVE_AMT_ANNUITY"] + X["AMT_ANNUITY"]
+        X["AMT_INCOME_TOTAL_-_total_annuity"] = X["AMT_INCOME_TOTAL"] - X["total_annuity"]
+        X["total_annuity_/_AMT_INCOME_TOTAL"] = X["total_annuity"] / X["AMT_INCOME_TOTAL"]
+
+        # Remaining cash per person (after removing CB annuities)
+        X["remaining_cash_per_person_after_CB"] = (X["AMT_INCOME_TOTAL"] - X["total_annuity"]) / X["CNT_FAM_MEMBERS"]
+        """
 
         # Remove features with many missing values
         print("    Removing features with more than 85% missing...")

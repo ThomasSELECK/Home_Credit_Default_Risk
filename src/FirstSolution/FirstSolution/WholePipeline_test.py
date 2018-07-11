@@ -47,7 +47,7 @@ if __name__ == "__main__":
     # Set the seed of numpy's PRNG
     np.random.seed(2017)
 
-    enable_validation = True
+    enable_validation = False
 
     # Load the data; y_test is None when 'enable_validation' is False
     X_train, X_test, y_train, y_test, bureau_data_df, bureau_balance_data_df, credit_card_balance_data_df, installments_payments_data_df, pos_cash_balance_data_df, previous_application_data_df = load_data(TRAINING_DATA_str, TESTING_DATA_str, BUREAU_DATA_str, BUREAU_BALANCE_DATA_str, CREDIT_CARD_BALANCE_DATA_str, INSTALLMENTS_PAYMENTS_DATA_str, POS_CASH_BALANCE_DATA_str, PREVIOUS_APPLICATION_DATA_str, enable_validation, "TARGET", CACHE_DIR_str)
@@ -102,6 +102,27 @@ if __name__ == "__main__":
           "verbosity": -1,
           "device": "gpu"
     }
+    
+    """
+    lgb_params = {"boosting_type": "gbdt",
+          "max_depth" : 8,
+          "objective": "binary",
+          "num_leaves": 32,
+          "learning_rate": 0.010,
+          "max_bin": 255,
+          "subsample_for_bin": 200,
+          "subsample": 0.8715623,
+          "subsample_freq": 1,
+          "colsample_bytree": 0.9497036,
+          "reg_alpha": 0.04,
+          "reg_lambda": 0.073,
+          "min_split_gain": 0.0222415,
+          "min_child_weight": 40,
+          "metric" : "auc",
+          "verbosity": -1,
+          "device": "gpu"
+    } # 0.791
+    """
 
     # ("ConstantFeaturesRemover", ConstantFeaturesRemover()), ("DuplicatedFeaturesRemover", DuplicatedFeaturesRemover()),
     # ("PairwiseNumericalInteractionsGenerator", PairwiseNumericalInteractionsGenerator(columns_names_lst = ["AMT_GOODS_PRICE", "FLOORSMAX_MEDI", "EXT_SOURCE_2", "CNT_FAM_MEMBERS", "NONLIVINGAREA_MEDI", "AMT_REQ_CREDIT_BUREAU_MON", "CNT_CHILDREN", "COMMONAREA_AVG", "APARTMENTS_MEDI", "COMMONAREA_MODE", "NONLIVINGAREA_MODE", "ENTRANCES_MEDI", "NONLIVINGAREA_AVG", "AMT_REQ_CREDIT_BUREAU_QRT", "AMT_REQ_CREDIT_BUREAU_WEEK", "APARTMENTS_MODE", "AMT_ANNUITY", "YEARS_BEGINEXPLUATATION_AVG", "ELEVATORS_MEDI", "APARTMENTS_AVG", "BASEMENTAREA_AVG", "FLOORSMIN_MEDI", "YEARS_BEGINEXPLUATATION_MODE", "YEARS_BEGINEXPLUATATION_MEDI", "FLOORSMIN_AVG"])),
@@ -151,7 +172,31 @@ if __name__ == "__main__":
     # Last submission: 03/06/2018, Public LB score: 0.786, local validation score: 0.7872588516887172, best iteration: [3300]	cv_agg's auc: 0.788296 + 0.00260346
     # Last submission: 24/06/2018, Public LB score: 0.785, local validation score: 0.7890342189844852, best iteration: [3300]	cv_agg's auc: 0.789042 + 0.0023899
     # Last submission: 30/06/2018, Public LB score: 0.791, local validation score: 0.7913583030412702, best iteration: [3000]  cv_agg's auc: 0.791811 + 0.00229
-    # Last submission: 02/07/2018, Public LB score: 0., local validation score: 0.7915572092049304, best iteration: 
+    # Last submission: 10/07/2018, Public LB score: 0.794, local validation score: 0.792572705721141, best iteration: [3300]  cv_agg's auc: 0.792713 + 0.00250958
+
+    """
+    NEED TO REMOVE THESE DUPLICATES!!!
+    Duplicates: previous_application_credit_length_nunique ; previous_application_credit_length_months_nunique
+    Duplicates: previous_application_NAME_CONTRACT_TYPE_Cash loans_std ; previous_application_NAME_CASH_LOAN_PURPOSE_XAP_std
+    Duplicates: previous_application_CODE_REJECT_REASON_CLIENT ; previous_application_NAME_CONTRACT_STATUS_Unused offer
+    Duplicates: bureau_AMT_CREDIT_SUM_sum ; bureau_TOTAL_CUSTOMER_CREDIT
+    Duplicates: bureau_AMT_CREDIT_SUM_DEBT_sum ; bureau_TOTAL_CUSTOMER_DEBT
+    Duplicates: bureau_AMT_CREDIT_SUM_OVERDUE_sum ; bureau_TOTAL_CUSTOMER_OVERDUE
+    Duplicates: bureau_CREDIT_ENDDATE_BINARY_mean ; bureau_CREDIT_ENDDATE_PERCENTAGE
+    Duplicates: bureau_DAYS_ENDDATE_DIFF_mean ; bureau_AVG_ENDDATE_FUTURE
+    Duplicates: bureau_bureau_count ; bureau_nb_bureau_records
+    Duplicates: bureau_bureau_count ; bureau_BUREAU_LOAN_COUNT
+    Duplicates: bureau_nb_bureau_records ; bureau_BUREAU_LOAN_COUNT
+    Duplicates: credit_card_balance_AMT_DRAWINGS_ATM_CURRENT_sum ; credit_card_balance_DRAWINGS_ATM
+    Duplicates: credit_card_balance_AMT_DRAWINGS_CURRENT_sum ; credit_card_balance_DRAWINGS_TOTAL
+    Duplicates: credit_card_balance_AMT_DRAWINGS_CURRENT_sum ; credit_card_balance_TOTAL_DRAWINGS
+    Duplicates: credit_card_balance_CNT_DRAWINGS_CURRENT_sum ; credit_card_balance_NO_DRAWINGS
+    Duplicates: credit_card_balance_SK_DPD_mean ; credit_card_balance_AVG_DPD
+    Duplicates: credit_card_balance_SK_DPD_min ; credit_card_balance_SK_DPD_DEF_min
+    Duplicates: credit_card_balance_DRAWINGS_TOTAL ; credit_card_balance_TOTAL_DRAWINGS
+    Duplicates: installments_payments_is_installment_overdue_mean ; installments_payments_installment_overdue_ratio
+"""
+
 
 """from sklearn.manifold import TSNE
 

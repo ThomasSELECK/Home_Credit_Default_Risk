@@ -96,11 +96,11 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
         """
 
         # Get list of categorical columns for each dataset and create encoders for encoding categorical variables
-        self._previous_application_categ_feats_lst = ["NAME_CONTRACT_TYPE", "WEEKDAY_APPR_PROCESS_START", "FLAG_LAST_APPL_PER_CONTRACT", "NAME_CASH_LOAN_PURPOSE", "NAME_CONTRACT_STATUS", "NAME_PAYMENT_TYPE", 
-                                                      "CODE_REJECT_REASON", "NAME_TYPE_SUITE", "NAME_CLIENT_TYPE", "NAME_GOODS_CATEGORY", "NAME_PORTFOLIO", "NAME_PRODUCT_TYPE", "CHANNEL_TYPE", 
+        self._previous_application_categ_feats_lst = ["NAME_CONTRACT_TYPE", "WEEKDAY_APPR_PROCESS_START", "FLAG_LAST_APPL_PER_CONTRACT", "NAME_CASH_LOAN_PURPOSE", "NAME_PAYMENT_TYPE", 
+                                                      "NAME_TYPE_SUITE", "NAME_CLIENT_TYPE", "NAME_GOODS_CATEGORY", "NAME_PORTFOLIO", "NAME_PRODUCT_TYPE", "CHANNEL_TYPE", 
                                                       "NAME_SELLER_INDUSTRY", "NAME_YIELD_GROUP", "PRODUCT_COMBINATION"]
-        self._previous_application_encoders_lst = [LabelBinarizer(), LabelBinarizer(), OrdinalEncoder(), LabelBinarizer(), LabelBinarizer(), LabelBinarizer(), 
-                                                   LabelBinarizer(), LabelBinarizer(), LabelBinarizer(), LabelBinarizer(), LabelBinarizer(), LabelBinarizer(), LabelBinarizer(), 
+        self._previous_application_encoders_lst = [LabelBinarizer(), LabelBinarizer(), OrdinalEncoder(), LabelBinarizer(), LabelBinarizer(), 
+                                                   LabelBinarizer(), LabelBinarizer(), LabelBinarizer(), LabelBinarizer(), LabelBinarizer(), LabelBinarizer(), 
                                                    LabelBinarizer(), LabelBinarizer(), LabelBinarizer()]
 
         self._bureau_categ_feats_lst = ["CREDIT_ACTIVE", "CREDIT_CURRENCY", "CREDIT_TYPE"]
@@ -192,6 +192,9 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
 
         # Processing 'bureau.csv'
         print("    Pre-processing 'bureau.csv'...")
+
+        # Count number of missing values by row
+        bureau_data_df["missing_values_count"] = bureau_data_df.isnull().sum(axis = 1)
 
         # Encode categorical features
         bureau_data_df = self._bureau_cfe.transform(bureau_data_df)
@@ -355,23 +358,68 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
         # Processing 'previous_application.csv'
         print("    Pre-processing 'previous_application.csv'...")
 
+        # Count number of missing values by row
+        previous_application_data_df["missing_values_count"] = previous_application_data_df.isnull().sum(axis = 1)
+
         previous_application_data_df["APP_CREDIT_PERC"] = previous_application_data_df["AMT_APPLICATION"] / previous_application_data_df["AMT_CREDIT"]
+        previous_application_data_df["APP_CREDIT_DIFF"] = previous_application_data_df["AMT_APPLICATION"] - previous_application_data_df["AMT_CREDIT"]
+        previous_application_data_df["APP_CREDIT_DIFF_eq_0"] = (previous_application_data_df["APP_CREDIT_DIFF"] == 0).astype(np.int8)
 
         # Impute missing values
         previous_application_data_df["NAME_TYPE_SUITE"].fillna("missing", inplace = True)
+        previous_application_data_df["AMT_DOWN_PAYMENT"].fillna(0, inplace = True)
 
+        # Get the number of annuities for each previous loan
+        tmp = installments_payments_data_df.groupby(["SK_ID_CURR", "SK_ID_PREV"]).size().reset_index()
+        tmp.columns = ["SK_ID_CURR", "SK_ID_PREV", "number_of_annuities"]
+        previous_application_data_df = previous_application_data_df.merge(tmp, how = "left", on = ["SK_ID_CURR", "SK_ID_PREV"])
+        previous_application_data_df["number_of_annuities"].fillna(0, inplace = True)
+        previous_application_data_df["credit_length"] = previous_application_data_df["DAYS_LAST_DUE"] - previous_application_data_df["DAYS_FIRST_DUE"]
+        previous_application_data_df["credit_length_months"] = (previous_application_data_df["credit_length"] / 30) + 1
+        previous_application_data_df["credit_length_months_gt_10000"] = (previous_application_data_df["credit_length_months"] > 10000).astype(np.int8)
+        previous_application_data_df["AMT_CREDIT_/_AMT_ANNUITY"] = previous_application_data_df["AMT_CREDIT"] / previous_application_data_df["AMT_ANNUITY"]
+        previous_application_data_df["number_of_annuities_-_AMT_CREDIT_/_AMT_ANNUITY"] = previous_application_data_df["number_of_annuities"] - previous_application_data_df["AMT_CREDIT_/_AMT_ANNUITY"]
+
+        previous_application_data_df["subscribed_to_insurance"] = (previous_application_data_df["AMT_CREDIT"] > previous_application_data_df["AMT_GOODS_PRICE"]).astype(np.int8)
+        previous_application_data_df["insurance_amount"] = previous_application_data_df["AMT_CREDIT"] - previous_application_data_df["AMT_GOODS_PRICE"]
+        previous_application_data_df["insurance_percentage_goods_price"] = (previous_application_data_df["insurance_amount"] / previous_application_data_df["AMT_GOODS_PRICE"]) * 100
+        previous_application_data_df["insurance_percentage_total_amount"] = (previous_application_data_df["insurance_amount"] / previous_application_data_df["AMT_CREDIT"]) * 100
+
+        # Look for rejected loans
+        previous_application_reject_reason_df = previous_application_data_df.groupby("SK_ID_CURR")["CODE_REJECT_REASON"].value_counts(normalize = False)
+        previous_application_reject_reason_df = previous_application_reject_reason_df.unstack("CODE_REJECT_REASON")
+        previous_application_reject_reason_df.columns = ["CODE_REJECT_REASON_" + c for c in previous_application_reject_reason_df.columns]
+        previous_application_reject_reason_df.fillna(0, inplace = True)
+
+        previous_application_contract_status_df = previous_application_data_df.groupby("SK_ID_CURR")["NAME_CONTRACT_STATUS"].value_counts(normalize = False)
+        previous_application_contract_status_df = previous_application_contract_status_df.unstack("NAME_CONTRACT_STATUS")
+        previous_application_contract_status_df.columns = ["NAME_CONTRACT_STATUS_" + c for c in previous_application_contract_status_df.columns]
+        previous_application_contract_status_df.fillna(0, inplace = True)
+        previous_application_contract_status_df["NAME_CONTRACT_STATUS_Refused_gt_0"] = (previous_application_contract_status_df["NAME_CONTRACT_STATUS_Refused"] > 0).astype(np.int8)
+        
         # Encode categorical features
         previous_application_data_df = self._previous_application_cfe.transform(previous_application_data_df)
 
         # Compute average values and counts
         previous_application_stats_df = self._flatten_columns_names(previous_application_data_df.select_dtypes(include = np.number).drop("SK_ID_PREV", axis = 1).groupby("SK_ID_CURR").agg(["mean", "std", "min", "max", "sum", "nunique"]))
-        previous_application_stats_df["nb_app"] = previous_application_data_df[["SK_ID_CURR", "SK_ID_PREV"]].groupby("SK_ID_CURR").count()["SK_ID_PREV"]
+        previous_application_stats_df["number_of_previous_applications"] = previous_application_data_df[["SK_ID_CURR", "SK_ID_PREV"]].groupby("SK_ID_CURR").count()["SK_ID_PREV"]
+
+        previous_application_stats_df = pd.concat([previous_application_stats_df, previous_application_reject_reason_df, previous_application_contract_status_df], axis = 1)
+
+        # Ratio of refused previous applications by total number of previous applications
+        previous_application_stats_df["refused_previous_applications_ratio"] = previous_application_stats_df["NAME_CONTRACT_STATUS_Refused"] / previous_application_stats_df["number_of_previous_applications"]
+
+        # Insurance ratio
+        previous_application_stats_df["NFLAG_INSURED_ON_APPROVAL_ratio"] = previous_application_stats_df["NFLAG_INSURED_ON_APPROVAL_sum"] / previous_application_stats_df["number_of_previous_applications"]
 
         # Add prefix to columns
         previous_application_stats_df.columns = ["previous_application_" + c if c != "SK_ID_CURR" else c for c in previous_application_stats_df.columns.tolist()]
 
         # Processing 'credit_card_balance.csv'
         print("    Pre-processing 'credit_card_balance.csv'...")
+
+        # Count number of missing values by row
+        credit_card_balance_data_df["missing_values_count"] = credit_card_balance_data_df.isnull().sum(axis = 1)
 
         # Encode categorical features
         credit_card_balance_data_df = self._credit_card_balance_cfe.transform(credit_card_balance_data_df)
@@ -440,12 +488,7 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
         card_balance_stats_df = card_balance_stats_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
 
         card_balance_stats_df["CASH_CARD_RATIO"] = (card_balance_stats_df["DRAWINGS_ATM"] / card_balance_stats_df["DRAWINGS_TOTAL"]) * 100
-
-        """grp = credit_card_balance_data_df.groupby(by = ["SK_ID_CURR"])["CASH_CARD_RATIO1"].mean().reset_index().rename(index = str, columns = {"CASH_CARD_RATIO1" : "CASH_CARD_RATIO"})
-        card_balance_stats_df = card_balance_stats_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
-        del grp
-        gc.collect()"""
-
+        
         ## Avg number of drawings per customer; Total drawings / Number of drawings
         grp = credit_card_balance_data_df.groupby(by = ["SK_ID_CURR"])["AMT_DRAWINGS_CURRENT"].sum().reset_index().rename(index = str, columns = {"AMT_DRAWINGS_CURRENT" : "TOTAL_DRAWINGS"})
         card_balance_stats_df = card_balance_stats_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
@@ -459,19 +502,14 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
 
         card_balance_stats_df["DRAWINGS_RATIO"] = (card_balance_stats_df["TOTAL_DRAWINGS"] / card_balance_stats_df["NO_DRAWINGS"]) * 100
         
-        """grp = credit_card_balance_data_df.groupby(by = ["SK_ID_CURR"])["DRAWINGS_RATIO1"].mean().reset_index().rename(index = str, columns = {"DRAWINGS_RATIO1" : "DRAWINGS_RATIO"})
-        credit_card_balance_data_df = credit_card_balance_data_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
-        del grp 
-        gc.collect()"""
-
-        """credit_card_balance_data_df["NUNIQUE_STATUS"] = credit_card_balance_data_df[["SK_ID_CURR", "NAME_CONTRACT_STATUS"]].groupby("SK_ID_CURR").nunique()["NAME_CONTRACT_STATUS"]
-        credit_card_balance_data_df["NUNIQUE_STATUS2"] = credit_card_balance_data_df[["SK_ID_CURR", "NAME_CONTRACT_STATUS"]].groupby("SK_ID_CURR").max()["NAME_CONTRACT_STATUS"]"""
-
         # Add prefix to columns
         card_balance_stats_df.columns = ["credit_card_balance_" + c if c != "SK_ID_CURR" else c for c in card_balance_stats_df.columns.tolist()]
         
         # Processing 'pos_cash_balance.csv'
         print("    Pre-processing 'pos_cash_balance.csv'...")
+
+        # Count number of missing values by row
+        pos_cash_balance_data_df["missing_values_count"] = pos_cash_balance_data_df.isnull().sum(axis = 1)
 
         pos_cash_balance_data_df["NUNIQUE_STATUS"] = pos_cash_balance_data_df[["SK_ID_CURR", "NAME_CONTRACT_STATUS"]].groupby("SK_ID_CURR").nunique()["NAME_CONTRACT_STATUS"]
         pos_cash_balance_data_df["NUNIQUE_STATUS2"] = pos_cash_balance_data_df[["SK_ID_CURR", "NAME_CONTRACT_STATUS"]].groupby("SK_ID_CURR").max()["NAME_CONTRACT_STATUS"]
@@ -490,15 +528,24 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
         # Processing 'installments_payments.csv'
         print("    Pre-processing 'installments_payments.csv'...")
 
+        # Count number of missing values by row
+        installments_payments_data_df["missing_values_count"] = installments_payments_data_df.isnull().sum(axis = 1)
+
         installments_payments_data_df["PAYMENT_PERC"] = installments_payments_data_df["AMT_PAYMENT"] / installments_payments_data_df["AMT_INSTALMENT"]
         installments_payments_data_df["PAYMENT_DIFF"] = installments_payments_data_df["AMT_INSTALMENT"] - installments_payments_data_df["AMT_PAYMENT"]
+        installments_payments_data_df["nb_overdue_days"] = installments_payments_data_df["DAYS_ENTRY_PAYMENT"] - installments_payments_data_df["DAYS_INSTALMENT"]
+        installments_payments_data_df["is_installment_overdue"] = (installments_payments_data_df["nb_overdue_days"] > 0).astype(np.int8)
+        installments_payments_data_df["no_installment_overdue"] = (installments_payments_data_df["nb_overdue_days"] == 0).astype(np.int8)
+
         """
         installments_payments_data_df["DPD"] = (installments_payments_data_df["DAYS_ENTRY_PAYMENT"] - installments_payments_data_df["DAYS_INSTALMENT"]).apply(lambda x: x if x > 0 else 0)
         installments_payments_data_df["DBD"] = (installments_payments_data_df["DAYS_INSTALMENT"] - installments_payments_data_df["DAYS_ENTRY_PAYMENT"]).apply(lambda x: x if x > 0 else 0)
         """
 
         installments_payments_stats_df = self._flatten_columns_names(installments_payments_data_df.select_dtypes(include = np.number).drop("SK_ID_PREV", axis = 1).groupby("SK_ID_CURR").agg(["mean", "std", "min", "max", "sum", "nunique"]))
-        #installments_payments_stats_df.drop("SK_ID_PREV", axis = 1, inplace = True)
+        installments_payments_stats_df["number_of_installments"] = installments_payments_data_df[["SK_ID_CURR", "SK_ID_PREV"]].groupby("SK_ID_CURR").count()["SK_ID_PREV"]
+
+        installments_payments_stats_df["installment_overdue_ratio"] = installments_payments_stats_df["is_installment_overdue_sum"] / installments_payments_stats_df["number_of_installments"]
         
         # Add prefix to columns
         installments_payments_stats_df.columns = ["installments_payments_" + c for c in installments_payments_stats_df.columns.tolist()]
