@@ -532,21 +532,44 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
         installments_payments_data_df["missing_values_count"] = installments_payments_data_df.isnull().sum(axis = 1)
 
         installments_payments_data_df["PAYMENT_PERC"] = installments_payments_data_df["AMT_PAYMENT"] / installments_payments_data_df["AMT_INSTALMENT"]
+        installments_payments_data_df["PAYMENT_PERC"] = installments_payments_data_df["PAYMENT_PERC"].replace([np.inf, -np.inf], np.nan).fillna(0)
         installments_payments_data_df["PAYMENT_DIFF"] = installments_payments_data_df["AMT_INSTALMENT"] - installments_payments_data_df["AMT_PAYMENT"]
         installments_payments_data_df["nb_overdue_days"] = installments_payments_data_df["DAYS_ENTRY_PAYMENT"] - installments_payments_data_df["DAYS_INSTALMENT"]
         installments_payments_data_df["is_installment_overdue"] = (installments_payments_data_df["nb_overdue_days"] > 0).astype(np.int8)
         installments_payments_data_df["no_installment_overdue"] = (installments_payments_data_df["nb_overdue_days"] == 0).astype(np.int8)
+        installments_payments_data_df["is_payment_partial"] = (installments_payments_data_df["PAYMENT_DIFF"] > 0).astype(np.int8)
 
-        """
-        installments_payments_data_df["DPD"] = (installments_payments_data_df["DAYS_ENTRY_PAYMENT"] - installments_payments_data_df["DAYS_INSTALMENT"]).apply(lambda x: x if x > 0 else 0)
-        installments_payments_data_df["DBD"] = (installments_payments_data_df["DAYS_INSTALMENT"] - installments_payments_data_df["DAYS_ENTRY_PAYMENT"]).apply(lambda x: x if x > 0 else 0)
-        """
+        # Groupby each customer and sort values of NUM_INSTALMENT_NUMBER in ascending order
+        grp = installments_payments_data_df[["SK_ID_CURR", "SK_ID_PREV", "NUM_INSTALMENT_NUMBER", "DAYS_ENTRY_PAYMENT", "PAYMENT_PERC", "PAYMENT_DIFF", "nb_overdue_days"]].sort_values(["SK_ID_CURR", "SK_ID_PREV", "NUM_INSTALMENT_NUMBER"])
 
+        ## Calculate Difference between each adjacent row
+        grp["DAYS_ENTRY_PAYMENT_DIFF"] = grp.groupby(by = ["SK_ID_CURR", "SK_ID_PREV"])["DAYS_ENTRY_PAYMENT"].diff().fillna(0).astype(np.int32)
+        grp["PAYMENT_PERC_DIFF"] = grp.groupby(by = ["SK_ID_CURR", "SK_ID_PREV"])["PAYMENT_PERC"].diff().fillna(0).astype(np.int32)
+        grp["PAYMENT_DIFF_DIFF"] = grp.groupby(by = ["SK_ID_CURR", "SK_ID_PREV"])["PAYMENT_DIFF"].diff().fillna(0).astype(np.int32)
+        grp["nb_overdue_days_DIFF"] = grp.groupby(by = ["SK_ID_CURR", "SK_ID_PREV"])["nb_overdue_days"].diff().fillna(0).astype(np.int32)
+        
+        grp.drop(["NUM_INSTALMENT_NUMBER", "DAYS_ENTRY_PAYMENT", "PAYMENT_PERC", "PAYMENT_DIFF", "nb_overdue_days"], axis = 1, inplace = True)
+        grp = grp.sort_index()
+        installments_payments_data_df["DAYS_ENTRY_PAYMENT_DIFF"] = grp["DAYS_ENTRY_PAYMENT_DIFF"]
+        installments_payments_data_df["PAYMENT_PERC_DIFF"] = grp["PAYMENT_PERC_DIFF"]
+        installments_payments_data_df["PAYMENT_DIFF_DIFF"] = grp["PAYMENT_DIFF_DIFF"]
+        installments_payments_data_df["nb_overdue_days_DIFF"] = grp["nb_overdue_days_DIFF"]
+        gc.collect()
+        
         installments_payments_stats_df = self._flatten_columns_names(installments_payments_data_df.select_dtypes(include = np.number).drop("SK_ID_PREV", axis = 1).groupby("SK_ID_CURR").agg(["mean", "std", "min", "max", "sum", "nunique"]))
         installments_payments_stats_df["number_of_installments"] = installments_payments_data_df[["SK_ID_CURR", "SK_ID_PREV"]].groupby("SK_ID_CURR").count()["SK_ID_PREV"]
 
         installments_payments_stats_df["installment_overdue_ratio"] = installments_payments_stats_df["is_installment_overdue_sum"] / installments_payments_stats_df["number_of_installments"]
-        
+
+        # Check if last installments were overdue
+        installments_payments_stats_df["last_installment_was_overdue"] = (installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "nb_overdue_days"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, False]).groupby("SK_ID_CURR").head(1).reset_index(drop = True)["nb_overdue_days"] > 0).astype(np.int8)
+        installments_payments_stats_df["nb_overdue_5_last_installments"] = installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "nb_overdue_days"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, False]).groupby("SK_ID_CURR").head(5).groupby("SK_ID_CURR")["nb_overdue_days"].apply(lambda x: (x > 0).sum())
+        #installments_payments_stats_df["all_5_last_installments_were_overdue"] = (installments_payments_stats_df["nb_overdue_5_last_installments"] == 5).astype(np.int8)
+
+        # Check if last installments were not totally paid
+        installments_payments_stats_df["last_installment_was_not_totally_paid"] = (installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "PAYMENT_PERC"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, False]).groupby("SK_ID_CURR").head(1).reset_index(drop = True)["PAYMENT_PERC"] < 1).astype(np.int8)
+        installments_payments_stats_df["nb_not_totally_paid_5_last_installments"] = installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "nb_overdue_days"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, False]).groupby("SK_ID_CURR").head(5).groupby("SK_ID_CURR")["nb_overdue_days"].apply(lambda x: (x < 1).sum())
+
         # Add prefix to columns
         installments_payments_stats_df.columns = ["installments_payments_" + c for c in installments_payments_stats_df.columns.tolist()]
                 

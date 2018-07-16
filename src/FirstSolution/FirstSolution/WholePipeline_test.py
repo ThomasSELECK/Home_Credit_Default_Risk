@@ -39,6 +39,8 @@ from wrappers.lightgbm_wrapper import LGBMClassifier
 from load_data import load_data
 from files_paths import *
 
+pd.set_option("display.max_columns", 100)
+
 # Call to main
 if __name__ == "__main__":
     # Start the timer
@@ -173,6 +175,7 @@ if __name__ == "__main__":
     # Last submission: 24/06/2018, Public LB score: 0.785, local validation score: 0.7890342189844852, best iteration: [3300]	cv_agg's auc: 0.789042 + 0.0023899
     # Last submission: 30/06/2018, Public LB score: 0.791, local validation score: 0.7913583030412702, best iteration: [3000]  cv_agg's auc: 0.791811 + 0.00229
     # Last submission: 10/07/2018, Public LB score: 0.794, local validation score: 0.792572705721141, best iteration: [3300]  cv_agg's auc: 0.792713 + 0.00250958
+    # Last submission: 15/07/2018, Public LB score: 0.797, local validation score: 0.7930225821503608, best iteration: [3300]  cv_agg's auc: 0.793265 + 0.0024848
 
     """
     NEED TO REMOVE THESE DUPLICATES!!!

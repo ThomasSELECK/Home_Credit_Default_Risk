@@ -90,6 +90,15 @@ class PreprocessingStep(BaseEstimator, TransformerMixin):
         # Count number of missing values by row
         X["missing_values_count"] = X.isnull().sum(axis = 1)
 
+        # Generating some features from EXT_SOURCE_*
+        X["EXT_SOURCE_1_*_EXT_SOURCE_2_*_EXT_SOURCE_3"] = X["EXT_SOURCE_1"] * X["EXT_SOURCE_2"] * X["EXT_SOURCE_3"]
+        X["ext_sources_mean"] = np.nanmean(X[["EXT_SOURCE_1", "EXT_SOURCE_2", "EXT_SOURCE_3"]], axis = 1)
+        X["ext_sources_median"] = np.nanmedian(X[["EXT_SOURCE_1", "EXT_SOURCE_2", "EXT_SOURCE_3"]], axis = 1)
+        X["ext_sources_std"] = np.nanstd(X[["EXT_SOURCE_1", "EXT_SOURCE_2", "EXT_SOURCE_3"]], axis = 1)
+        X["ext_sources_sum"] = np.nansum(X[["EXT_SOURCE_1", "EXT_SOURCE_2", "EXT_SOURCE_3"]], axis = 1)
+        X["ext_sources_nb_missing"] = X[["EXT_SOURCE_1", "EXT_SOURCE_2", "EXT_SOURCE_3"]].isnull().sum(axis = 1)
+        X["ext_sources_range"] = np.abs(X[["EXT_SOURCE_1", "EXT_SOURCE_2", "EXT_SOURCE_3"]].max(axis = 1) - X[["EXT_SOURCE_1", "EXT_SOURCE_2", "EXT_SOURCE_3"]].min(axis = 1))
+
         # When AMT_ANNUITY, CNT_FAM_MEMBERS and DAYS_LAST_PHONE_CHANGE are missing, then the target is always 0. 
         X["AMT_ANNUITY_is_missing"] = X["AMT_ANNUITY"].isnull().astype(np.int8)
         X["CNT_FAM_MEMBERS_is_missing"] = X["CNT_FAM_MEMBERS"].isnull().astype(np.int8)
@@ -102,8 +111,9 @@ class PreprocessingStep(BaseEstimator, TransformerMixin):
         X["age_30_40"] = ((X["age"] >= 30) & (X["age"] < 40)).astype(np.int8)
         X["age_40_50"] = ((X["age"] >= 40) & (X["age"] < 50)).astype(np.int8)
         X["age_50_60"] = ((X["age"] >= 50) & (X["age"] < 60)).astype(np.int8)
-        #X["age_ge_60"] = (X["age"] >= 60).astype(np.int8)
-        X["binned_age"] = 6 * X["age_lt_25"] + 5 * X["age_25_30"] + 4 * X["age_30_40"] + 3 * X["age_40_50"] + 2 * X["age_50_60"] #+ X["age_ge_60"]
+        X["age_ge_60"] = (X["age"] >= 60).astype(np.int8)
+        X["binned_age"] = 6 * X["age_lt_25"] + 5 * X["age_25_30"] + 4 * X["age_30_40"] + 3 * X["age_40_50"] + 2 * X["age_50_60"] + X["age_ge_60"]
+        X.drop("age_ge_60", axis = 1, inplace = True)
 
         # Compute number working years
         X["nb_working_years"] = -X["DAYS_EMPLOYED"] // 365.25
@@ -115,9 +125,21 @@ class PreprocessingStep(BaseEstimator, TransformerMixin):
         #X["nb_working_years_30_40"] = ((X["nb_working_years"] >= 30) & (X["nb_working_years"] < 40)).astype(np.int8)
         #X["nb_working_years_ge_40"] = (X["nb_working_years"] >= 40).astype(np.int8)
         X["binned_nb_working_years"] = 6 * X["nb_working_years_lt_5"] + 5 * X["nb_working_years_5_10"] + 4 * X["nb_working_years_10_20"] + 3 * X["nb_working_years_20_30"] #+ 2 * X["nb_working_years_30_40"] + X["nb_working_years_ge_40"]
+        X.drop(["nb_working_years_5_10", "nb_working_years_10_20", "nb_working_years_20_30"], axis = 1, inplace = True)
 
         # Create a dummy indicating if the client has a job
-        X["is_employed"] = (X["DAYS_EMPLOYED"] >= 0).astype(np.int8)
+        #X["is_employed"] = (X["DAYS_EMPLOYED"] >= 0).astype(np.int8)
+
+        # Create some interactions related to 'DAYS_LAST_PHONE_CHANGE'
+        X["phone_to_birth_ratio"] = X["DAYS_LAST_PHONE_CHANGE"] / X["DAYS_BIRTH"]
+        X["phone_to_employ_ratio"] = X["DAYS_LAST_PHONE_CHANGE"] / X["DAYS_EMPLOYED"]
+
+        X["employment_0_1000"] = ((X["DAYS_EMPLOYED"] > -1000) & (X["DAYS_EMPLOYED"] < 0)).astype(np.int8)
+        X["employment_1000_2000"] = ((X["DAYS_EMPLOYED"] > -2000) & (X["DAYS_EMPLOYED"] < -1000)).astype(np.int8)
+        X["employment_2000_5000"] = ((X["DAYS_EMPLOYED"] > -5000) & (X["DAYS_EMPLOYED"] < -2000)).astype(np.int8)
+        X["employment_gt_5000"] = (X["DAYS_EMPLOYED"] < -5000).astype(np.int8)
+        X["employment_group"] = 1 * X["employment_0_1000"] + 2 * X["employment_1000_2000"] + 3 * X["employment_2000_5000"] + 4 * X["employment_gt_5000"]
+        X["employment_group"] = X["employment_group"].map({0: 0.054307, 1: 0.111332, 2: 0.095376, 3: 0.068404, 4: 0.047204}) # Mean value of the target for each group
 
         # Compute interactions between income and annuity
         X["diff_income_annuity"] = X["AMT_INCOME_TOTAL"] - X["AMT_ANNUITY"]
@@ -126,8 +148,10 @@ class PreprocessingStep(BaseEstimator, TransformerMixin):
         # How much times income does the credit represents
         X["credit_income_ratio"] = X["AMT_CREDIT"] / X["AMT_INCOME_TOTAL"]
 
-        # Is your income < 700k? => In this case you have ~10% default rate
-        #X["income_lt_700k"] = (X["AMT_INCOME_TOTAL"] < 700000).astype(np.int8)
+        # Bin AMT_CREDIT
+        X["AMT_CREDIT_lt_500k"] = (X["AMT_CREDIT"] < 500000).astype(np.int8)
+        X["AMT_CREDIT_between_500k_1500k"] = ((X["AMT_CREDIT"] > 500000) & (X["AMT_CREDIT"] < 1500000)).astype(np.int8)
+        X["AMT_CREDIT_gt_1500k"] = (X["AMT_CREDIT"] > 1500000).astype(np.int8)
 
         # How many adult in the family?
         X["nb_adults"] = X["CNT_FAM_MEMBERS"] - X["CNT_CHILDREN"]
@@ -212,10 +236,10 @@ class PreprocessingStep(BaseEstimator, TransformerMixin):
         X["insurance_amount"] = X["AMT_CREDIT"] - X["AMT_GOODS_PRICE"]
         X["insurance_percentage_goods_price"] = (X["insurance_amount"] / X["AMT_GOODS_PRICE"]) * 100
         X["insurance_percentage_total_amount"] = (X["insurance_amount"] / X["AMT_CREDIT"]) * 100
-        X["insurance_percentage_goods_price_lt_0_or_gt_100"] = ((X["insurance_percentage_goods_price"] < 0) | (X["insurance_percentage_goods_price"] > 100)).astype(np.int8)
+        #X["insurance_percentage_goods_price_lt_0_or_gt_100"] = ((X["insurance_percentage_goods_price"] < 0) | (X["insurance_percentage_goods_price"] > 100)).astype(np.int8)
 
         # Distribution of cars older than 60 years are strange. Maybe is a default value
-        X["is_car_older_than_60y"] = (X["OWN_CAR_AGE"] > 60).astype(np.int8)
+        #X["is_car_older_than_60y"] = (X["OWN_CAR_AGE"] > 60).astype(np.int8)
 
         X["car_to_birth_ratio"] = X["OWN_CAR_AGE"] / X["DAYS_BIRTH"]
         X["car_to_employ_ratio"] = X["OWN_CAR_AGE"] / X["DAYS_EMPLOYED"]
@@ -226,8 +250,6 @@ class PreprocessingStep(BaseEstimator, TransformerMixin):
         X["DAYS_ID_PUBLISH_*_DAYS_LAST_PHONE_CHANGE"] = X["DAYS_ID_PUBLISH"] * X["DAYS_LAST_PHONE_CHANGE"]
         X["DAYS_ID_PUBLISH_-_DAYS_LAST_PHONE_CHANGE"] = X["DAYS_ID_PUBLISH"] - X["DAYS_LAST_PHONE_CHANGE"]
         X["DAYS_ID_PUBLISH_*_DAYS_LAST_PHONE_CHANGE_*_DAYS_REGISTRATION"] = X["DAYS_ID_PUBLISH"] * X["DAYS_LAST_PHONE_CHANGE"] * X["DAYS_REGISTRATION"]
-        X["EXT_SOURCE_1_*_EXT_SOURCE_2_*_EXT_SOURCE_3"] = X["EXT_SOURCE_1"] * X["EXT_SOURCE_2"] * X["EXT_SOURCE_3"]
-        X["ext_sources_mean"] = (X["EXT_SOURCE_1"] + X["EXT_SOURCE_2"] + X["EXT_SOURCE_3"]) / 3
         X["age_*_nb_annuities"] = X["age"] * X["nb_annuities"]
 
         # Merge additional data to main dataframe
