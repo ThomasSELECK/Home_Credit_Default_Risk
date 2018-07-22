@@ -42,12 +42,6 @@ class PreprocessingStep(BaseEstimator, TransformerMixin):
         """
 
         # Unpack datasets
-        """self.bureau_data_df = additional_data_lst[0]
-        self.bureau_balance_data_df = additional_data_lst[1]
-        self.credit_card_balance_data_df = additional_data_lst[2]
-        self.installments_payments_data_df = additional_data_lst[3]
-        self.pos_cash_balance_data_df = additional_data_lst[4]
-        self.previous_application_data_df = additional_data_lst[5]"""
         self._final_dataset_df = additional_data_lst[0]
         self._useful_features_lst = None
                                       
@@ -86,6 +80,11 @@ class PreprocessingStep(BaseEstimator, TransformerMixin):
         """
                     
         print("Preprocessing data...")    
+
+        # Replace missing values flags by NaNs
+        X["DAYS_LAST_PHONE_CHANGE"].replace(0, np.nan, inplace = True)
+        X["CODE_GENDER"].replace("XNA", np.nan, inplace = True)
+        X["DAYS_EMPLOYED"].replace(365243, np.nan, inplace = True)
         
         # Count number of missing values by row
         X["missing_values_count"] = X.isnull().sum(axis = 1)
@@ -115,9 +114,11 @@ class PreprocessingStep(BaseEstimator, TransformerMixin):
         X["binned_age"] = 6 * X["age_lt_25"] + 5 * X["age_25_30"] + 4 * X["age_30_40"] + 3 * X["age_40_50"] + 2 * X["age_50_60"] + X["age_ge_60"]
         X.drop("age_ge_60", axis = 1, inplace = True)
 
+        # Create a dummy indicating if the client is retired
+        X["in_retirement_age"] = (X["DAYS_BIRTH"] < -14000).astype(np.int8)
+
         # Compute number working years
         X["nb_working_years"] = -X["DAYS_EMPLOYED"] // 365.25
-        #X["is_working_for_1000_years"] = (X["DAYS_EMPLOYED"] > 300000).astype(np.int8)
         X["nb_working_years_lt_5"] = (X["nb_working_years"] < 5).astype(np.int8)
         X["nb_working_years_5_10"] = ((X["nb_working_years"] >= 5) & (X["nb_working_years"] < 10)).astype(np.int8)
         X["nb_working_years_10_20"] = ((X["nb_working_years"] >= 10) & (X["nb_working_years"] < 20)).astype(np.int8)
@@ -126,10 +127,7 @@ class PreprocessingStep(BaseEstimator, TransformerMixin):
         #X["nb_working_years_ge_40"] = (X["nb_working_years"] >= 40).astype(np.int8)
         X["binned_nb_working_years"] = 6 * X["nb_working_years_lt_5"] + 5 * X["nb_working_years_5_10"] + 4 * X["nb_working_years_10_20"] + 3 * X["nb_working_years_20_30"] #+ 2 * X["nb_working_years_30_40"] + X["nb_working_years_ge_40"]
         X.drop(["nb_working_years_5_10", "nb_working_years_10_20", "nb_working_years_20_30"], axis = 1, inplace = True)
-
-        # Create a dummy indicating if the client has a job
-        #X["is_employed"] = (X["DAYS_EMPLOYED"] >= 0).astype(np.int8)
-
+        
         # Create some interactions related to 'DAYS_LAST_PHONE_CHANGE'
         X["phone_to_birth_ratio"] = X["DAYS_LAST_PHONE_CHANGE"] / X["DAYS_BIRTH"]
         X["phone_to_employ_ratio"] = X["DAYS_LAST_PHONE_CHANGE"] / X["DAYS_EMPLOYED"]
@@ -157,6 +155,8 @@ class PreprocessingStep(BaseEstimator, TransformerMixin):
         X["nb_adults"] = X["CNT_FAM_MEMBERS"] - X["CNT_CHILDREN"]
         X["children_ratio"] = X["CNT_CHILDREN"] / X["CNT_FAM_MEMBERS"]
         X["income_per_child"] = X["AMT_INCOME_TOTAL"] / (1 + X["CNT_CHILDREN"])
+        X["child_to_adult_ratio"] = X["CNT_CHILDREN"] / X["nb_adults"]
+        X["income_per_adult"] = X["AMT_INCOME_TOTAL"] / X["nb_adults"]
 
         # Income per person
         X["income_per_person"] = X["AMT_INCOME_TOTAL"] / X["CNT_FAM_MEMBERS"]
@@ -164,12 +164,9 @@ class PreprocessingStep(BaseEstimator, TransformerMixin):
         # Credit amount per person
         X["credit_amount_per_person"] = X["AMT_CREDIT"] / X["CNT_FAM_MEMBERS"]
         X["credit_annuity_per_person"] = X["AMT_ANNUITY"] / X["CNT_FAM_MEMBERS"]
-
-        """
-        # Remaining cash per person
-        X["remaining_cash_per_person"] = (X["AMT_INCOME_TOTAL"] - X["AMT_ANNUITY"]) / X["CNT_FAM_MEMBERS"]
-        """
-
+        X["credit_per_child"] = X["AMT_CREDIT"] / (1 + X["CNT_CHILDREN"])
+        X["credit_per_non_child"] = X["AMT_CREDIT"] / X["nb_adults"]
+        
         # Number of annuities
         X["nb_annuities"] = X["AMT_CREDIT"] / X["AMT_ANNUITY"]
 

@@ -85,21 +85,20 @@ if __name__ == "__main__":
     }"""
 
     lgb_params = {"boosting_type": "gbdt",
-          "max_depth" : 7,
+          "max_depth" : -1,
           "objective": "binary",
-          "num_leaves": 70,
+          "num_leaves": 30,
           "learning_rate": 0.010,
           "max_bin": 255,
-          "subsample_for_bin": 200,
-          "subsample": 0.8,
+          "subsample": 1.0,
           "subsample_freq": 1,
-          "colsample_bytree": 0.7,
-          "reg_alpha": 5,
-          "reg_lambda": 10,
+          "colsample_bytree": 0.05,
+          "reg_alpha": 0,
+          "reg_lambda": 100,
           "min_split_gain": 0.5,
           "min_child_weight": 19,
-          "min_child_samples": 5,
-          "scale_pos_weight": 1,
+          "min_child_samples": 70,
+          "scale_pos_weight": 1, # or is_unbalance = True
           "metric" : "auc",
           "verbosity": -1,
           "device": "gpu"
@@ -176,7 +175,8 @@ if __name__ == "__main__":
     # Last submission: 30/06/2018, Public LB score: 0.791, local validation score: 0.7913583030412702, best iteration: [3000]  cv_agg's auc: 0.791811 + 0.00229
     # Last submission: 10/07/2018, Public LB score: 0.794, local validation score: 0.792572705721141, best iteration: [3300]  cv_agg's auc: 0.792713 + 0.00250958
     # Last submission: 15/07/2018, Public LB score: 0.797, local validation score: 0.7930225821503608, best iteration: [3300]  cv_agg's auc: 0.793265 + 0.0024848
-
+    # Last submission: 22/07/2018, Public LB score: 0.802, local validation score: 0.7939531011343464, best iteration: [6200]  cv_agg's auc: 0.794916 + 0.00251919
+    
     """
     NEED TO REMOVE THESE DUPLICATES!!!
     Duplicates: previous_application_credit_length_nunique ; previous_application_credit_length_months_nunique

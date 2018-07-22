@@ -193,6 +193,11 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
         # Processing 'bureau.csv'
         print("    Pre-processing 'bureau.csv'...")
 
+        # Replace outliers with NaNs
+        bureau_data_df["DAYS_CREDIT_ENDDATE"].loc[bureau_data_df["DAYS_CREDIT_ENDDATE"] < -40000] = np.nan
+        bureau_data_df["DAYS_CREDIT_UPDATE"].loc[bureau_data_df["DAYS_CREDIT_UPDATE"] < -40000] = np.nan
+        bureau_data_df["DAYS_ENDDATE_FACT"].loc[bureau_data_df["DAYS_ENDDATE_FACT"] < -40000] = np.nan
+
         # Count number of missing values by row
         bureau_data_df["missing_values_count"] = bureau_data_df.isnull().sum(axis = 1)
 
@@ -338,20 +343,6 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
         grp = bureau_data_df[["SK_ID_CURR", "CNT_CREDIT_PROLONG"]].groupby(by = ["SK_ID_CURR"])["CNT_CREDIT_PROLONG"].mean().reset_index().rename(index = str, columns = { "CNT_CREDIT_PROLONG": "AVG_CREDITDAYS_PROLONGED"})
         bureau_stats_df = bureau_stats_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
                 
-        """avg_buro["avg_nb_records_by_bureau"] = bureau_data_df.groupby(["SK_ID_CURR", "SK_ID_BUREAU"]).size().groupby("SK_ID_CURR").mean()
-        avg_buro["max_nb_records_by_bureau"] = bureau_data_df.groupby(["SK_ID_CURR", "SK_ID_BUREAU"]).size().groupby("SK_ID_CURR").max()
-        avg_buro["min_nb_records_by_bureau"] = bureau_data_df.groupby(["SK_ID_CURR", "SK_ID_BUREAU"]).size().groupby("SK_ID_CURR").min()
-        avg_buro["AMT_CREDIT_MAX_OVERDUE_sum"] = bureau_data_df.groupby(["SK_ID_CURR", "SK_ID_BUREAU"])["AMT_CREDIT_MAX_OVERDUE"].mean().groupby("SK_ID_CURR").sum()
-        avg_buro["AMT_CREDIT_MAX_OVERDUE_sum_gt_zero"] = (avg_buro["AMT_CREDIT_MAX_OVERDUE_sum"] > 0).astype(np.int8)
-        avg_buro["days_past_due_gt_0"] = bureau_data_df.groupby(["SK_ID_CURR", "SK_ID_BUREAU"])["STATUS_OTHER"].max().groupby("SK_ID_CURR").sum()
-        avg_buro["CNT_CREDIT_PROLONG_sum"] = bureau_data_df.groupby(["SK_ID_CURR", "SK_ID_BUREAU"])["CNT_CREDIT_PROLONG"].max().groupby("SK_ID_CURR").sum()
-        avg_buro["CNT_CREDIT_PROLONG_sum_gt_zero"] = (avg_buro["CNT_CREDIT_PROLONG_sum"] > 0).astype(np.int8)
-        avg_buro["AMT_CREDIT_SUM_sum"] = bureau_data_df.groupby(["SK_ID_CURR", "SK_ID_BUREAU"])["AMT_CREDIT_SUM"].mean().groupby("SK_ID_CURR").sum()
-        avg_buro["DAYS_CREDIT_ENDDATE_avg"] = bureau_data_df.groupby(["SK_ID_CURR", "SK_ID_BUREAU"])["DAYS_CREDIT_ENDDATE"].mean().groupby("SK_ID_CURR").mean()
-        avg_buro["nb_active_credit"] = bureau_data_df.groupby(["SK_ID_CURR", "SK_ID_BUREAU"])["CREDIT_ACTIVE_Active"].max().groupby("SK_ID_CURR").sum()   """     
-        
-        #bureau_stats_df.drop("SK_ID_BUREAU", axis = 1, inplace = True)
-
         # Add prefix to columns
         bureau_stats_df.columns = ["bureau_" + c if c != "SK_ID_CURR" else c for c in bureau_stats_df.columns.tolist()]
 
@@ -417,6 +408,10 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
 
         # Processing 'credit_card_balance.csv'
         print("    Pre-processing 'credit_card_balance.csv'...")
+
+        # Replace outliers with NaNs
+        credit_card_balance_data_df["AMT_DRAWINGS_ATM_CURRENT"].loc[credit_card_balance_data_df["AMT_DRAWINGS_ATM_CURRENT"] < 0] = np.nan
+        credit_card_balance_data_df["AMT_DRAWINGS_CURRENT"].loc[credit_card_balance_data_df["AMT_DRAWINGS_CURRENT"] < 0] = np.nan
 
         # Count number of missing values by row
         credit_card_balance_data_df["missing_values_count"] = credit_card_balance_data_df.isnull().sum(axis = 1)
@@ -514,13 +509,32 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
         pos_cash_balance_data_df["NUNIQUE_STATUS"] = pos_cash_balance_data_df[["SK_ID_CURR", "NAME_CONTRACT_STATUS"]].groupby("SK_ID_CURR").nunique()["NAME_CONTRACT_STATUS"]
         pos_cash_balance_data_df["NUNIQUE_STATUS2"] = pos_cash_balance_data_df[["SK_ID_CURR", "NAME_CONTRACT_STATUS"]].groupby("SK_ID_CURR").max()["NAME_CONTRACT_STATUS"]
 
+        # Flag late payments
+        pos_cash_balance_data_df["pos_cash_paid_late"] = (pos_cash_balance_data_df["SK_DPD"] > 0).astype(np.int8)
+        pos_cash_balance_data_df["pos_cash_paid_late_with_tolerance"] = (pos_cash_balance_data_df["SK_DPD_DEF"] > 0).astype(np.int8)
+        pos_cash_balance_data_df["low_debt_overdue"] = pos_cash_balance_data_df["SK_DPD"] - pos_cash_balance_data_df["SK_DPD_DEF"]
+        pos_cash_balance_data_df["high_debt_ratio_overdue"] = pos_cash_balance_data_df["SK_DPD_DEF"] / pos_cash_balance_data_df["SK_DPD"]
+
         # Encode categorical features
         pos_cash_balance_data_df = self._pos_cash_balance_cfe.transform(pos_cash_balance_data_df)
 
         # Compute average values and counts
         pos_cash_balance_stats_df = self._flatten_columns_names(pos_cash_balance_data_df.select_dtypes(include = np.number).drop("SK_ID_PREV", axis = 1).groupby("SK_ID_CURR").agg(["mean", "std", "min", "max", "sum", "nunique"]))
         pos_cash_balance_stats_df["nb_pcb"] = pos_cash_balance_data_df[["SK_ID_CURR", "SK_ID_PREV"]].groupby("SK_ID_CURR").count()["SK_ID_PREV"]
-        #pos_cash_balance_stats_df.drop("SK_ID_PREV", axis = 1, inplace = True)
+
+        # Check if last installments were overdue
+        pos_cash_balance_stats_df["last_installment_was_overdue"] = (pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, False]).groupby("SK_ID_CURR").head(1).reset_index(drop = True)["SK_DPD"] > 0).astype(np.int8)
+        pos_cash_balance_stats_df["last_installment_was_overdue_with_tolerance"] = (pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD_DEF"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, False]).groupby("SK_ID_CURR").head(1).reset_index(drop = True)["SK_DPD_DEF"] > 0).astype(np.int8)
+        pos_cash_balance_stats_df["last_installment_was_overdue_low_debt"] = (pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "low_debt_overdue"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, False]).groupby("SK_ID_CURR").head(1).reset_index(drop = True)["low_debt_overdue"] > 0).astype(np.int8)
+        
+        for window in [5, 10, 20]:
+            pos_cash_balance_stats_df["nb_overdue_" + str(window) + "_last_installments"] = pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, False]).groupby("SK_ID_CURR").head(window).groupby("SK_ID_CURR")["SK_DPD"].apply(lambda x: (x > 0).sum())
+            pos_cash_balance_stats_df["nb_overdue_" + str(window) + "_last_installments_with_tolerance"] = pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD_DEF"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, False]).groupby("SK_ID_CURR").head(window).groupby("SK_ID_CURR")["SK_DPD_DEF"].apply(lambda x: (x > 0).sum())
+            pos_cash_balance_stats_df["nb_overdue_" + str(window) + "_last_installments_low_debt"] = pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "low_debt_overdue"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, False]).groupby("SK_ID_CURR").head(window).groupby("SK_ID_CURR")["low_debt_overdue"].apply(lambda x: (x > 0).sum())
+
+        #pos_cash_balance_stats_df["all_last_installments_were_overdue"] = pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, False]).groupby("SK_ID_CURR")["SK_DPD"].apply(lambda x: int((x > 0).sum() == x.shape[0]))
+        #pos_cash_balance_stats_df["all_last_installments_were_overdue_with_tolerance"] = pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD_DEF"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, False]).groupby("SK_ID_CURR")["SK_DPD_DEF"].apply(lambda x: int((x > 0).sum() == x.shape[0]))
+        #pos_cash_balance_stats_df["all_last_installments_were_overdue_low_debt"] = pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "low_debt_overdue"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, False]).groupby("SK_ID_CURR")["low_debt_overdue"].apply(lambda x: int((x > 0).sum() == x.shape[0]))
 
         # Add prefix to columns
         pos_cash_balance_stats_df.columns = ["pos_cash_balance_" + c for c in pos_cash_balance_stats_df.columns.tolist()]
@@ -563,12 +577,15 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
 
         # Check if last installments were overdue
         installments_payments_stats_df["last_installment_was_overdue"] = (installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "nb_overdue_days"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, False]).groupby("SK_ID_CURR").head(1).reset_index(drop = True)["nb_overdue_days"] > 0).astype(np.int8)
-        installments_payments_stats_df["nb_overdue_5_last_installments"] = installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "nb_overdue_days"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, False]).groupby("SK_ID_CURR").head(5).groupby("SK_ID_CURR")["nb_overdue_days"].apply(lambda x: (x > 0).sum())
-        #installments_payments_stats_df["all_5_last_installments_were_overdue"] = (installments_payments_stats_df["nb_overdue_5_last_installments"] == 5).astype(np.int8)
+        
+        for window in [5, 10, 20]:
+            installments_payments_stats_df["nb_overdue_" + str(window) + "_last_installments"] = installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "nb_overdue_days"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, False]).groupby("SK_ID_CURR").head(window).groupby("SK_ID_CURR")["nb_overdue_days"].apply(lambda x: (x > 0).sum())
 
         # Check if last installments were not totally paid
         installments_payments_stats_df["last_installment_was_not_totally_paid"] = (installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "PAYMENT_PERC"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, False]).groupby("SK_ID_CURR").head(1).reset_index(drop = True)["PAYMENT_PERC"] < 1).astype(np.int8)
-        installments_payments_stats_df["nb_not_totally_paid_5_last_installments"] = installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "nb_overdue_days"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, False]).groupby("SK_ID_CURR").head(5).groupby("SK_ID_CURR")["nb_overdue_days"].apply(lambda x: (x < 1).sum())
+
+        for window in [5, 10, 20]:
+            installments_payments_stats_df["nb_not_totally_paid_" + str(window) + "_last_installments"] = installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "nb_overdue_days"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, False]).groupby("SK_ID_CURR").head(window).groupby("SK_ID_CURR")["nb_overdue_days"].apply(lambda x: (x < 1).sum())
 
         # Add prefix to columns
         installments_payments_stats_df.columns = ["installments_payments_" + c for c in installments_payments_stats_df.columns.tolist()]
