@@ -269,6 +269,25 @@ class PreprocessingStep(BaseEstimator, TransformerMixin):
         X["remaining_cash_per_person_after_CB"] = (X["AMT_INCOME_TOTAL"] - X["total_annuity"]) / X["CNT_FAM_MEMBERS"]
         """
 
+        # Convert some features to log
+        log_features_lst = ["previous_application_SELLERPLACE_AREA_mean", "previous_application_SELLERPLACE_AREA_max", "previous_application_SELLERPLACE_AREA_sum", "installments_payments_PAYMENT_PERC_sum", "installments_payments_DAYS_ENTRY_PAYMENT_DIFF_std", "installments_payments_AMT_INSTALMENT_min", "installments_payments_AMT_PAYMENT_min", "installments_payments_nb_overdue_days_DIFF_std", "installments_payments_AMT_INSTALMENT_std", "installments_payments_PAYMENT_PERC_mean", "installments_payments_AMT_PAYMENT_mean", "installments_payments_AMT_PAYMENT_sum", "installments_payments_AMT_INSTALMENT_sum", "installments_payments_AMT_PAYMENT_max", "installments_payments_AMT_INSTALMENT_mean", "installments_payments_AMT_INSTALMENT_max", "installments_payments_PAYMENT_PERC_max", "installments_payments_DAYS_ENTRY_PAYMENT_DIFF_mean", "pos_cash_balance_SK_DPD_nunique", "pos_cash_balance_NAME_CONTRACT_STATUS_OrdinalEncoder_sum", "previous_application_AMT_ANNUITY_sum", "pos_cash_balance_SK_DPD_DEF_nunique", "installments_payments_nb_overdue_days_DIFF_max", "pos_cash_balance_CNT_INSTALMENT_FUTURE_sum"]
+        for feat in log_features_lst:
+            X[feat] = np.log1p(np.abs(X[feat])) # Try sign(x) * log1p(abs(x))
+
+        # Convert feature with high skewness to log
+        X2 = X.select_dtypes(include = [np.number])
+        occurences_lst = []
+        for feat in X2.columns.tolist():
+            if X2[feat].nunique() < 10:
+                occurences_lst.append(feat)
+
+        X2.drop(occurences_lst, axis = 1, inplace = True)
+        skewness_sr = np.abs(X2.skew())
+        to_be_converted_features_lst = skewness_sr.loc[skewness_sr > 5].index.tolist()
+        to_be_converted_features_lst = list(set(to_be_converted_features_lst) - set(log_features_lst))
+        for feat in to_be_converted_features_lst:
+            X[feat] = np.sign(X[feat]) * np.log1p(np.abs(X[feat]))
+
         # Remove features with many missing values
         print("    Removing features with more than 85% missing...")
         if self._useful_features_lst == None:

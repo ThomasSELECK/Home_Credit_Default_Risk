@@ -49,7 +49,7 @@ if __name__ == "__main__":
     # Set the seed of numpy's PRNG
     np.random.seed(2017)
 
-    enable_validation = False
+    enable_validation = True
 
     # Load the data; y_test is None when 'enable_validation' is False
     X_train, X_test, y_train, y_test, bureau_data_df, bureau_balance_data_df, credit_card_balance_data_df, installments_payments_data_df, pos_cash_balance_data_df, previous_application_data_df = load_data(TRAINING_DATA_str, TESTING_DATA_str, BUREAU_DATA_str, BUREAU_BALANCE_DATA_str, CREDIT_CARD_BALANCE_DATA_str, INSTALLMENTS_PAYMENTS_DATA_str, POS_CASH_BALANCE_DATA_str, PREVIOUS_APPLICATION_DATA_str, enable_validation, "TARGET", CACHE_DIR_str)
@@ -176,28 +176,144 @@ if __name__ == "__main__":
     # Last submission: 10/07/2018, Public LB score: 0.794, local validation score: 0.792572705721141, best iteration: [3300]  cv_agg's auc: 0.792713 + 0.00250958
     # Last submission: 15/07/2018, Public LB score: 0.797, local validation score: 0.7930225821503608, best iteration: [3300]  cv_agg's auc: 0.793265 + 0.0024848
     # Last submission: 22/07/2018, Public LB score: 0.802, local validation score: 0.7939531011343464, best iteration: [6200]  cv_agg's auc: 0.794916 + 0.00251919
+    # Last submission: 26/07/2018, Public LB score: 0.802, local validation score: 0.7942585900748229, best iteration: [6600]  cv_agg's auc: 0.795471 + 0.00262586
+    # Last submission: 19/08/2018, Public LB score: 0., local validation score: 0.794687159102472, best iteration: 
+    # 
+
+"""
+import pandas as pd
+import numpy as np
+import pickle
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+#X["target"] = y
+with open("E:/full_dataset_22072018.pkl", "rb") as f:
+    X = pickle.load(f)
+
+X.replace(-999, np.nan, inplace = True)
+
+X2 = X.select_dtypes(include = [np.number])
+
+# Remove categorical features
+occurences_lst = []
+for feat in X2.columns.tolist():
+    if X2[feat].nunique() < 10:
+        occurences_lst.append(feat)
+
+X2.drop(occurences_lst, axis = 1, inplace = True)
+
+X2["target"] = X["target"]
+cormat = X2.corr()
+
+duplicates_features_lst = [] #duplicates_features_lst = ['bureau_nb_bureau_records', 'bureau_AMT_CREDIT_SUM_DEBT_sum', 'previous_application_PRODUCT_COMBINATION_NA_mean', 'previous_application_credit_length_months_nunique', 'credit_card_balance_AVG_DPD', 'credit_card_balance_NO_DRAWINGS', 'credit_card_balance_AMT_DRAWINGS_CURRENT_sum', 'bureau_CNT_CREDIT_PROLONG_mean', 'bureau_DAYS_ENDDATE_DIFF_mean', 'credit_card_balance_CNT_DRAWINGS_CURRENT_sum', 'credit_card_balance_DRAWINGS_ATM', 'previous_application_PRODUCT_COMBINATION_NA_std', 'bureau_TOTAL_CUSTOMER_OVERDUE', 'credit_card_balance_TOTAL_DRAWINGS', 'bureau_CREDIT_ENDDATE_BINARY_mean', 'previous_application_NAME_CONTRACT_TYPE_XNA_std', 'bureau_AVG_ENDDATE_FUTURE', 'installments_payments_installment_overdue_ratio', 'previous_application_credit_length_nunique', 'previous_application_NAME_CONTRACT_TYPE_XNA_mean', 'bureau_CREDIT_ENDDATE_PERCENTAGE', 'bureau_BUREAU_LOAN_COUNT', 'previous_application_CODE_REJECT_REASON_CLIENT', 'credit_card_balance_SK_DPD_mean', 'bureau_AVG_CREDITDAYS_PROLONGED', 'bureau_bureau_count', 'bureau_AMT_CREDIT_SUM_OVERDUE_sum', 'previous_application_NAME_CONTRACT_TYPE_Cash loans_std', 'bureau_TOTAL_CUSTOMER_DEBT', 'previous_application_NAME_CASH_LOAN_PURPOSE_XAP_std', 'bureau_TOTAL_CUSTOMER_CREDIT', 'bureau_AMT_CREDIT_SUM_sum', 'credit_card_balance_AMT_DRAWINGS_ATM_CURRENT_sum', 'previous_application_NAME_CONTRACT_STATUS_Unused offer', 'installments_payments_is_installment_overdue_mean', 'credit_card_balance_DRAWINGS_TOTAL']
+highly_correlated_features_dict = {"feature1" : [], "feature2" : [], "correlation value" : []}
+
+for i in range(X2.shape[1]):
+    for j in range(i + 1, X2.shape[1]):
+        if cormat.iloc[i, j] == 1: # If features are duplicated
+            duplicates_features_lst.append(X2.columns.tolist()[i])
+            duplicates_features_lst.append(X2.columns.tolist()[j])
+        elif np.abs(cormat.iloc[i, j]) > 0.6:
+            highly_correlated_features_dict["feature1"].append(X2.columns.tolist()[i])
+            highly_correlated_features_dict["feature2"].append(X2.columns.tolist()[j])
+            highly_correlated_features_dict["correlation value"].append(cormat.iloc[i, j])
+
+highly_correlated_features_df = pd.DataFrame(highly_correlated_features_dict)
+
+i = 0
+for feat1, feat2 in zip(highly_correlated_features_df["feature1"], highly_correlated_features_df["feature2"]):
+    df[[feat1, feat2]].plot.scatter(x = feat1, y = feat2, figsize = (16, 9), alpha = 0.2)
+    plt.title("Scatter plot of " + feat1  + " and " + feat2)
+    plt.savefig("E:/plots2/scatter_plot_" + str(i) + ".png")
+    plt.close()
+    i += 1
+
+highly_correlated_features_df["abs correlation value"] = np.abs(highly_correlated_features_df["correlation value"])
+linear_corr_df = highly_correlated_features_df.loc[highly_correlated_features_df["abs correlation value"] > 0.95]
+
+df = X2[list(set(linear_corr_df["feature1"].tolist() + linear_corr_df["feature2"].tolist()))]
+df.fillna(-999, inplace = True)
+
+from sklearn.decomposition import PCA
+pca = PCA(n_components = 7)
+tmp = pca.fit_transform(df)
+
+"""
     
-    """
-    NEED TO REMOVE THESE DUPLICATES!!!
-    Duplicates: previous_application_credit_length_nunique ; previous_application_credit_length_months_nunique
-    Duplicates: previous_application_NAME_CONTRACT_TYPE_Cash loans_std ; previous_application_NAME_CASH_LOAN_PURPOSE_XAP_std
-    Duplicates: previous_application_CODE_REJECT_REASON_CLIENT ; previous_application_NAME_CONTRACT_STATUS_Unused offer
-    Duplicates: bureau_AMT_CREDIT_SUM_sum ; bureau_TOTAL_CUSTOMER_CREDIT
-    Duplicates: bureau_AMT_CREDIT_SUM_DEBT_sum ; bureau_TOTAL_CUSTOMER_DEBT
-    Duplicates: bureau_AMT_CREDIT_SUM_OVERDUE_sum ; bureau_TOTAL_CUSTOMER_OVERDUE
-    Duplicates: bureau_CREDIT_ENDDATE_BINARY_mean ; bureau_CREDIT_ENDDATE_PERCENTAGE
-    Duplicates: bureau_DAYS_ENDDATE_DIFF_mean ; bureau_AVG_ENDDATE_FUTURE
-    Duplicates: bureau_bureau_count ; bureau_nb_bureau_records
-    Duplicates: bureau_bureau_count ; bureau_BUREAU_LOAN_COUNT
-    Duplicates: bureau_nb_bureau_records ; bureau_BUREAU_LOAN_COUNT
-    Duplicates: credit_card_balance_AMT_DRAWINGS_ATM_CURRENT_sum ; credit_card_balance_DRAWINGS_ATM
-    Duplicates: credit_card_balance_AMT_DRAWINGS_CURRENT_sum ; credit_card_balance_DRAWINGS_TOTAL
-    Duplicates: credit_card_balance_AMT_DRAWINGS_CURRENT_sum ; credit_card_balance_TOTAL_DRAWINGS
-    Duplicates: credit_card_balance_CNT_DRAWINGS_CURRENT_sum ; credit_card_balance_NO_DRAWINGS
-    Duplicates: credit_card_balance_SK_DPD_mean ; credit_card_balance_AVG_DPD
-    Duplicates: credit_card_balance_SK_DPD_min ; credit_card_balance_SK_DPD_DEF_min
-    Duplicates: credit_card_balance_DRAWINGS_TOTAL ; credit_card_balance_TOTAL_DRAWINGS
-    Duplicates: installments_payments_is_installment_overdue_mean ; installments_payments_installment_overdue_ratio
+"""
+import pandas as pd
+import numpy as np
+import pickle
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+#X["target"] = y
+with open("E:/full_dataset_22072018.pkl", "rb") as f:
+    X = pickle.load(f)
+
+X.replace(-999, np.nan, inplace = True)
+
+X2 = X.select_dtypes(include = [np.number])
+
+# Remove categorical features
+occurences_lst = []
+for feat in X2.columns.tolist():
+    if X2[feat].nunique() < 10:
+        occurences_lst.append(feat)
+
+X2.drop(occurences_lst, axis = 1, inplace = True)
+
+for i, feat in enumerate(X2.columns.tolist()):
+    if i % 50 == 0:
+        print("[" + str(i) + "/" + str(len(X2.columns.tolist())) + "] Saving feature histogram")
+
+    X2[feat].plot.hist(bins = 100)
+    plt.title("Histogram of " + feat)
+    plt.savefig("E:/plots/histogram_" + str(i) + ".png")
+    plt.close()
+            
+# Compute influence of log
+X2["target"] = X["target"]
+cormat = X2.corr()
+
+X2 = X.select_dtypes(include = [np.number])
+for feat in X2.columns:
+    X2[feat + "_log"] = np.log1p(X2[feat])
+
+X2 = X2.filter(regex = ".*_log")
+X2["target"] = X["target"]
+cormat_log = X2.corr()
+cormat_log.index = [item.replace("_log", "") for item in cormat_log.index.tolist()]
+tmp = cormat["target"]
+tmp2 = cormat_log["target"]
+tmp2.name = "target_log"
+df = tmp.reset_index().merge(tmp2.reset_index(), how = "inner", on = "index")
+df.columns = ["feature", "target", "target_log"]
+df.to_csv("E:/log_effect.csv", index = False)
+"""
+
+"""
+NEED TO REMOVE THESE DUPLICATES!!!
+Duplicates: previous_application_credit_length_nunique ; previous_application_credit_length_months_nunique
+Duplicates: previous_application_NAME_CONTRACT_TYPE_Cash loans_std ; previous_application_NAME_CASH_LOAN_PURPOSE_XAP_std
+Duplicates: previous_application_CODE_REJECT_REASON_CLIENT ; previous_application_NAME_CONTRACT_STATUS_Unused offer
+Duplicates: bureau_AMT_CREDIT_SUM_sum ; bureau_TOTAL_CUSTOMER_CREDIT
+Duplicates: bureau_AMT_CREDIT_SUM_DEBT_sum ; bureau_TOTAL_CUSTOMER_DEBT
+Duplicates: bureau_AMT_CREDIT_SUM_OVERDUE_sum ; bureau_TOTAL_CUSTOMER_OVERDUE
+Duplicates: bureau_CREDIT_ENDDATE_BINARY_mean ; bureau_CREDIT_ENDDATE_PERCENTAGE
+Duplicates: bureau_DAYS_ENDDATE_DIFF_mean ; bureau_AVG_ENDDATE_FUTURE
+Duplicates: bureau_bureau_count ; bureau_nb_bureau_records
+Duplicates: bureau_bureau_count ; bureau_BUREAU_LOAN_COUNT
+Duplicates: bureau_nb_bureau_records ; bureau_BUREAU_LOAN_COUNT
+Duplicates: credit_card_balance_AMT_DRAWINGS_ATM_CURRENT_sum ; credit_card_balance_DRAWINGS_ATM
+Duplicates: credit_card_balance_AMT_DRAWINGS_CURRENT_sum ; credit_card_balance_DRAWINGS_TOTAL
+Duplicates: credit_card_balance_AMT_DRAWINGS_CURRENT_sum ; credit_card_balance_TOTAL_DRAWINGS
+Duplicates: credit_card_balance_CNT_DRAWINGS_CURRENT_sum ; credit_card_balance_NO_DRAWINGS
+Duplicates: credit_card_balance_SK_DPD_mean ; credit_card_balance_AVG_DPD
+Duplicates: credit_card_balance_SK_DPD_min ; credit_card_balance_SK_DPD_DEF_min
+Duplicates: credit_card_balance_DRAWINGS_TOTAL ; credit_card_balance_TOTAL_DRAWINGS
+Duplicates: installments_payments_is_installment_overdue_mean ; installments_payments_installment_overdue_ratio
 """
 
 
@@ -237,3 +353,31 @@ X_train2 = X_train2.merge(previous_application_data_df, how = "left", on = "SK_I
 X_train2 = X_train2.merge(pos_cash_balance_data_df, how = "left", on = "SK_ID_CURR")
 X_train2 = X_train2.merge(installments_payments_data_df, how = "left", on = "SK_ID_CURR")
 X_train2 = X_train2.merge(credit_card_balance_data_df, how = "left", on = "SK_ID_CURR")"""
+
+"""
+X_train["is_train"] = 1
+X_test["is_train"] = 0
+df = pd.concat([X_train[["is_train", "NAME_CONTRACT_TYPE_y"]], X_test[["is_train", "NAME_CONTRACT_TYPE_y"]]], axis = 0)
+pd.crosstab(df["is_train"], df["NAME_CONTRACT_TYPE_y"]).div(df["is_train"].value_counts(ascending = True).values, axis = 0)
+"""
+
+"""
+i = 0
+for feat1 in final_dataset_df.columns:
+    nb_levels = final_dataset_df[feat1].nunique()
+
+    if nb_levels > 10:
+        print("Plotting", feat1, "...")
+        try:
+            final_dataset_df[feat1].plot.hist(bins = 100, figsize = (16, 9))
+        except:
+            #sns.countplot(final_dataset_df[feat1])
+            print(feat1, "failed!")
+
+        plt.title("Histogram plot of " + feat1)
+        plt.savefig("E:/plots2/histogram_plot_" + str(i) + ".png")
+        plt.close()
+        i += 1
+    else:
+        print(feat1, "only have", nb_levels, "levels")
+"""
