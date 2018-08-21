@@ -212,10 +212,10 @@ def load_data(training_data_path_str, testing_data_path_str, bureau_data_path_st
         X_test = pd.DataFrame(test_split, columns = training_set_df.columns)
 
         # Resample testing set to have same repartition of 'NAME_CONTRACT_TYPE' than in the original testing set (99% Cash loans and 1% Revolving loans)
-        cash_loans_df = X_test.loc[X_test["NAME_CONTRACT_TYPE"] == "Cash loans"]
+        """cash_loans_df = X_test.loc[X_test["NAME_CONTRACT_TYPE"] == "Cash loans"]
         revolving_loans_df = X_test.loc[X_test["NAME_CONTRACT_TYPE"] == "Revolving loans"].sample(n = int(cash_loans_df.shape[0] / 99))
         X_test = pd.concat([cash_loans_df, revolving_loans_df], axis = 0)
-        X_test.sort_index(inplace = True)
+        X_test.sort_index(inplace = True)"""
     
         # Extract truth / target
         y_train = X_train[target_name_str]

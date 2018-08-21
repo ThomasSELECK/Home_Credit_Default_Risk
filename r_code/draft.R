@@ -45,3 +45,16 @@ for (col in colnames(tr2)) {
   count_lst <- c(count_lst, length(unique(tr2[[col]])))
 }
 count_df$count <- count_lst
+
+# Feature selection
+library(dplyr)
+library(readr)
+
+previous_application_stats <- read_csv("E:/previous_application_stats.csv")
+colnames(previous_application_stats) <- c("feature", "nb_nas", "nb_levels", "target_correlation")
+previous_application_stats <- subset(previous_application_stats, nb_levels > 1)
+previous_application_stats <- subset(previous_application_stats, feature != "SK_ID_CURR")
+
+extract <- read_csv("E:/extract.csv")
+previous_application_stats <- left_join(previous_application_stats, extract, by = "feature")
+

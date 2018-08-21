@@ -18,9 +18,11 @@ import numpy as np
 import pandas as pd
 import time
 import gc
+import multiprocessing as mp
 
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.preprocessing import LabelBinarizer
+from sklearn.linear_model import LinearRegression
 
 from feature_processing.categorical_encoders import CategoricalFeaturesEncoder, OrdinalEncoder, GroupingEncoder, LeaveOneOutEncoder, TargetAvgEncoder
 
@@ -41,6 +43,20 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
         -------
         None
         """
+
+        self.n_jobs = 16
+
+    def create_trend_feature(self, feature_sr):
+        y = feature_sr.values
+        try:
+            x = np.arange(0, len(y)).reshape(-1, 1)
+            lr = LinearRegression()
+            lr.fit(x, y)
+            trend = lr.coef_[0]
+        except:
+            trend = np.nan
+
+        return trend
 
     def _flatten_columns_names(self, df):
         """
@@ -382,7 +398,44 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
         previous_application_data_df = previous_application_data_df.merge(tmp, how = "left", on = ["SK_ID_CURR", "SK_ID_PREV"])
         
         # Encode categorical features
+        tmp_df = previous_application_data_df[["SK_ID_CURR", "PRODUCT_COMBINATION", "NAME_YIELD_GROUP", "NAME_CONTRACT_STATUS", "NAME_CASH_LOAN_PURPOSE"]]
+        tmp_df = tmp_df.merge(self.y_train, how = "left", on = "SK_ID_CURR")
+
+        name_yield_group_mapping_dict = tmp_df[["NAME_YIELD_GROUP", "target"]].groupby("NAME_YIELD_GROUP").agg(lambda x: x.sum() / x.shape[0]).to_dict()["target"]
+        previous_application_data_df["NAME_YIELD_GROUP_TgtAvg"] = previous_application_data_df["NAME_YIELD_GROUP"].map(name_yield_group_mapping_dict)
+
+        product_combination_mapping_dict = tmp_df[["PRODUCT_COMBINATION", "target"]].groupby("PRODUCT_COMBINATION").agg(lambda x: x.sum() / x.shape[0]).to_dict()["target"]
+        previous_application_data_df["PRODUCT_COMBINATION_TgtAvg"] = previous_application_data_df["PRODUCT_COMBINATION"].map(product_combination_mapping_dict)
+
+        name_contract_status_mapping_dict = tmp_df[["NAME_CONTRACT_STATUS", "target"]].groupby("NAME_CONTRACT_STATUS").agg(lambda x: x.sum() / x.shape[0]).to_dict()["target"]
+        previous_application_data_df["NAME_CONTRACT_STATUS_TgtAvg"] = previous_application_data_df["NAME_CONTRACT_STATUS"].map(product_combination_mapping_dict)
+
+        name_cash_loan_purpose_mapping_dict = tmp_df[["NAME_CASH_LOAN_PURPOSE", "target"]].groupby("NAME_CASH_LOAN_PURPOSE").agg(lambda x: x.sum() / x.shape[0]).to_dict()["target"]
+        previous_application_data_df["NAME_CASH_LOAN_PURPOSE_TgtAvg"] = previous_application_data_df["NAME_CASH_LOAN_PURPOSE"].map(name_cash_loan_purpose_mapping_dict)
+
         previous_application_data_df = self._previous_application_cfe.transform(previous_application_data_df)
+
+        # Remove useless features
+        useless_features_lst = ["CHANNEL_TYPE_AP+ (Cash loan)", "CHANNEL_TYPE_Car dealer", "CHANNEL_TYPE_Channel of corporate sales", "CHANNEL_TYPE_Contact center", 
+                                "CHANNEL_TYPE_Credit and cash offices", "CHANNEL_TYPE_Regional / Local", "NAME_CASH_LOAN_PURPOSE_Building a house or an annex", "NAME_CASH_LOAN_PURPOSE_Business development", 
+                                "NAME_CASH_LOAN_PURPOSE_Buying a garage", "NAME_CASH_LOAN_PURPOSE_Buying a holiday home / land", "NAME_CASH_LOAN_PURPOSE_Buying a home", "NAME_CASH_LOAN_PURPOSE_Buying a new car", 
+                                "NAME_CASH_LOAN_PURPOSE_Buying a used car", "NAME_CASH_LOAN_PURPOSE_Car repairs", "NAME_CASH_LOAN_PURPOSE_Education", "NAME_CASH_LOAN_PURPOSE_Everyday expenses", 
+                                "NAME_CASH_LOAN_PURPOSE_Furniture", "NAME_CASH_LOAN_PURPOSE_Gasification / water supply", "NAME_CASH_LOAN_PURPOSE_Journey", "NAME_CASH_LOAN_PURPOSE_Money for a third person", 
+                                "NAME_CASH_LOAN_PURPOSE_Payments on other loans", "NAME_CASH_LOAN_PURPOSE_Purchase of electronic equipment", "NAME_CASH_LOAN_PURPOSE_Refusal to name the goal", "NAME_CASH_LOAN_PURPOSE_Urgent needs", 
+                                "NAME_CASH_LOAN_PURPOSE_Wedding / gift / holiday", "NAME_CLIENT_TYPE_XNA", "NAME_CONTRACT_TYPE_Cash loans", "NAME_CONTRACT_TYPE_Consumer loans", 
+                                "NAME_CONTRACT_TYPE_Revolving loans", "NAME_GOODS_CATEGORY_Additional Service", "NAME_GOODS_CATEGORY_Auto Accessories", "NAME_GOODS_CATEGORY_Clothing and Accessories", 
+                                "NAME_GOODS_CATEGORY_Construction Materials", "NAME_GOODS_CATEGORY_Consumer Electronics", "NAME_GOODS_CATEGORY_Direct Sales", "NAME_GOODS_CATEGORY_Education", 
+                                "NAME_GOODS_CATEGORY_Fitness", "NAME_GOODS_CATEGORY_Gardening", "NAME_GOODS_CATEGORY_Homewares", "NAME_GOODS_CATEGORY_Insurance", 
+                                "NAME_GOODS_CATEGORY_Medical Supplies", "NAME_GOODS_CATEGORY_Medicine", "NAME_GOODS_CATEGORY_Office Appliances", "NAME_GOODS_CATEGORY_Other", 
+                                "NAME_GOODS_CATEGORY_Photo / Cinema Equipment", "NAME_GOODS_CATEGORY_Sport and Leisure", "NAME_GOODS_CATEGORY_Tourism", "NAME_GOODS_CATEGORY_Weapon", 
+                                "NAME_PAYMENT_TYPE_Cash through the bank", "NAME_PAYMENT_TYPE_Cashless from the account of the employer", "NAME_PAYMENT_TYPE_Non-cash from your account", 
+                                "NAME_PORTFOLIO_Cars", "NAME_SELLER_INDUSTRY_Auto technology", "NAME_SELLER_INDUSTRY_Consumer electronics", "NAME_SELLER_INDUSTRY_Jewelry", 
+                                "NAME_SELLER_INDUSTRY_MLM partners", "NAME_SELLER_INDUSTRY_Tourism", "NAME_TYPE_SUITE_Group of people", "NAME_TYPE_SUITE_Spouse, partner", 
+                                "PRODUCT_COMBINATION_Card Street", "PRODUCT_COMBINATION_Card X-Sell", "PRODUCT_COMBINATION_Cash Street: high", "PRODUCT_COMBINATION_Cash Street: low", 
+                                "PRODUCT_COMBINATION_Cash Street: middle", "PRODUCT_COMBINATION_Cash X-Sell: high", "PRODUCT_COMBINATION_Cash X-Sell: low", "PRODUCT_COMBINATION_Cash X-Sell: middle", 
+                                "PRODUCT_COMBINATION_POS household with interest", "PRODUCT_COMBINATION_POS household without interest", "PRODUCT_COMBINATION_POS industry with interest", "PRODUCT_COMBINATION_POS industry without interest", 
+                                "PRODUCT_COMBINATION_POS mobile with interest", "PRODUCT_COMBINATION_POS mobile without interest", "PRODUCT_COMBINATION_POS other with interest", "PRODUCT_COMBINATION_POS others without interest"]
+        previous_application_data_df.drop(useless_features_lst, axis = 1, inplace = True)
 
         # Compute average values and counts
         previous_application_stats_df = self._flatten_columns_names(previous_application_data_df.select_dtypes(include = np.number).drop("SK_ID_PREV", axis = 1).groupby("SK_ID_CURR").agg(["mean", "std", "min", "max", "sum", "nunique"]))
@@ -395,6 +448,10 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
 
         # Insurance ratio
         previous_application_stats_df["NFLAG_INSURED_ON_APPROVAL_ratio"] = previous_application_stats_df["NFLAG_INSURED_ON_APPROVAL_sum"] / previous_application_stats_df["number_of_previous_applications"]
+
+        # Look for trends
+        subset_data1_df = previous_application_data_df[["SK_ID_CURR", "DAYS_DECISION", "NAME_YIELD_GROUP_TgtAvg"]].sort_values(["SK_ID_CURR", "DAYS_DECISION"], ascending = [True, True]).groupby("SK_ID_CURR")
+        previous_application_stats_df["NAME_YIELD_GROUP_trend"] = subset_data1_df["NAME_YIELD_GROUP_TgtAvg"].apply(lambda x: self.create_trend_feature(x))
 
         # Add prefix to columns
         previous_application_stats_df.columns = ["previous_application_" + c if c != "SK_ID_CURR" else c for c in previous_application_stats_df.columns.tolist()]
@@ -502,6 +559,65 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
 
         return card_balance_stats_df
 
+    def transform_pos_cash_worker(self, data):
+        # Unpack data
+        data_subset_df = data[0]
+        window = data[1]
+        processing_type = data[2]
+
+        if window is None:
+            if processing_type == 5:
+                feature_name = "normalized_nb_overdue"
+                result_sr = data_subset_df["SK_DPD"].apply(lambda x: (x > 0).sum() / x.shape[0])
+            elif processing_type == 6:
+                feature_name = "normalized_nb_overdue_with_tolerance"
+                result_sr = data_subset_df["SK_DPD_DEF"].apply(lambda x: (x > 0).sum() / x.shape[0])
+            elif processing_type == 7:
+                feature_name = "normalized_nb_days_overdue"
+                result_sr = data_subset_df["SK_DPD"].apply(lambda x: x.values[x.values > 0].sum() / x.shape[0])
+            elif processing_type == 8:
+                feature_name = "normalized_nb_days_overdue_with_tolerance"
+                result_sr = data_subset_df["SK_DPD_DEF"].apply(lambda x: x.values[x.values > 0].sum() / x.shape[0])
+            elif processing_type == 9:
+                feature_name = "overdue_apparition_in_installments"
+                result_sr = data_subset_df["SK_DPD"].apply(lambda x: (x.values > 0).argmax(axis = 0) / x.shape[0])
+            elif processing_type == 10:
+                feature_name = "overdue_apparition_in_installments_with_tolerance"
+                result_sr = data_subset_df["SK_DPD_DEF"].apply(lambda x: (x.values > 0).argmax(axis = 0) / x.shape[0])
+            elif type(processing_type) == str:
+                feature_name = processing_type
+                result_sr = data_subset_df.apply(lambda x: self.create_trend_feature(x))
+
+        elif window == 1:
+            if processing_type == 1:
+                feature_name = "last_installment_was_overdue"
+                result_sr = (data_subset_df.head(1).reset_index(drop = True)["SK_DPD"] > 0).astype(np.int8)
+            elif processing_type == 2:
+                feature_name = "last_installment_was_overdue_with_tolerance"
+                result_sr = (data_subset_df.head(1).reset_index(drop = True)["SK_DPD_DEF"] > 0).astype(np.int8)
+            elif processing_type == 3:
+                feature_name = "first_installment_was_overdue"
+                result_sr = (data_subset_df.head(1).reset_index(drop = True)["SK_DPD"] > 0).astype(np.int8)
+            elif processing_type == 4:
+                feature_name = "first_installment_was_overdue_with_tolerance"
+                result_sr = (data_subset_df.head(1).reset_index(drop = True)["SK_DPD_DEF"] > 0).astype(np.int8)
+
+        else:
+            if processing_type == 1:
+                feature_name = "nb_overdue_" + str(window) + "_last_installments"
+                result_sr = data_subset_df.head(window).groupby("SK_ID_CURR")["SK_DPD"].apply(lambda x: (x > 0).sum())
+            elif processing_type == 2:
+                feature_name = "nb_overdue_" + str(window) + "_last_installments_with_tolerance"
+                result_sr = data_subset_df.head(window).groupby("SK_ID_CURR")["SK_DPD_DEF"].apply(lambda x: (x > 0).sum())
+            elif processing_type == 3:
+                feature_name = "nb_overdue_" + str(window) + "_first_installments"
+                result_sr = data_subset_df.head(window).groupby("SK_ID_CURR")["SK_DPD"].apply(lambda x: (x > 0).sum())
+            elif processing_type == 4:
+                feature_name = "nb_overdue_" + str(window) + "_first_installments_with_tolerance"
+                result_sr = data_subset_df.head(window).groupby("SK_ID_CURR")["SK_DPD_DEF"].apply(lambda x: (x > 0).sum())
+
+        return (result_sr, feature_name)
+
     def transform_pos_cash_balance_data(self, pos_cash_balance_data_df):
         st = time.time()
         print("    Pre-processing 'pos_cash_balance.csv'...")
@@ -525,33 +641,46 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
         pos_cash_balance_stats_df = self._flatten_columns_names(pos_cash_balance_data_df.select_dtypes(include = np.number).drop("SK_ID_PREV", axis = 1).groupby("SK_ID_CURR").agg(["mean", "std", "min", "max", "sum", "nunique"]))
         pos_cash_balance_stats_df["nb_pcb"] = pos_cash_balance_data_df[["SK_ID_CURR", "SK_ID_PREV"]].groupby("SK_ID_CURR").count()["SK_ID_PREV"]
 
-        # Check if last installments were overdue
-        pos_cash_balance_stats_df["last_installment_was_overdue"] = (pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, False]).groupby("SK_ID_CURR").head(1).reset_index(drop = True)["SK_DPD"] > 0).astype(np.int8)
-        pos_cash_balance_stats_df["last_installment_was_overdue_with_tolerance"] = (pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD_DEF"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, False]).groupby("SK_ID_CURR").head(1).reset_index(drop = True)["SK_DPD_DEF"] > 0).astype(np.int8)
-        
-        for window in [5, 10, 20]:
-            pos_cash_balance_stats_df["nb_overdue_" + str(window) + "_last_installments"] = pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, False]).groupby("SK_ID_CURR").head(window).groupby("SK_ID_CURR")["SK_DPD"].apply(lambda x: (x > 0).sum())
-            pos_cash_balance_stats_df["nb_overdue_" + str(window) + "_last_installments_with_tolerance"] = pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD_DEF"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, False]).groupby("SK_ID_CURR").head(window).groupby("SK_ID_CURR")["SK_DPD_DEF"].apply(lambda x: (x > 0).sum())
+        # Check if last and first installments were overdue
+        subset_data1_df = pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, False]).groupby("SK_ID_CURR")
+        subset_data2_df = pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD_DEF"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, False]).groupby("SK_ID_CURR")
+        subset_data3_df = pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, True]).groupby("SK_ID_CURR")
+        subset_data4_df = pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD_DEF"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, True]).groupby("SK_ID_CURR")
 
-        # Check if first installments were overdue
-        pos_cash_balance_stats_df["first_installment_was_overdue"] = (pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, True]).groupby("SK_ID_CURR").head(1).reset_index(drop = True)["SK_DPD"] > 0).astype(np.int8)
-        pos_cash_balance_stats_df["first_installment_was_overdue_with_tolerance"] = (pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD_DEF"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, True]).groupby("SK_ID_CURR").head(1).reset_index(drop = True)["SK_DPD_DEF"] > 0).astype(np.int8)
-        
-        for window in [5, 10, 20]:
-            pos_cash_balance_stats_df["nb_overdue_" + str(window) + "_first_installments"] = pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, True]).groupby("SK_ID_CURR").head(window).groupby("SK_ID_CURR")["SK_DPD"].apply(lambda x: (x > 0).sum())
-            pos_cash_balance_stats_df["nb_overdue_" + str(window) + "_first_installments_with_tolerance"] = pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD_DEF"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, True]).groupby("SK_ID_CURR").head(window).groupby("SK_ID_CURR")["SK_DPD_DEF"].apply(lambda x: (x > 0).sum())
+        chunk_data_lst = []
+        # For last installments
+        for i in [1, 5, 10, 20]:
+            chunk_data_lst.append((subset_data1_df, i, 1))
+            chunk_data_lst.append((subset_data2_df, i, 2))
+
+        """
+        # For first installments
+        for i in [1, 5, 10, 20]:
+            chunk_data_lst.append((subset_data3_df, i, 3))
+            chunk_data_lst.append((subset_data4_df, i, 4))"""
 
         # Number of overdues for each loan, normalized by the loan's length
-        pos_cash_balance_stats_df["normalized_nb_overdue"] = pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, False]).groupby("SK_ID_CURR")["SK_DPD"].apply(lambda x: (x > 0).sum() / x.shape[0])
-        pos_cash_balance_stats_df["normalized_nb_overdue_with_tolerance"] = pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD_DEF"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, False]).groupby("SK_ID_CURR")["SK_DPD_DEF"].apply(lambda x: (x > 0).sum() / x.shape[0])
-
+        chunk_data_lst.append((subset_data1_df, None, 5))
+        chunk_data_lst.append((subset_data2_df, None, 6))
+        
         # Cumulated number of overdue days normalized by loan's length
-        pos_cash_balance_stats_df["normalized_nb_days_overdue"] = pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, False]).groupby("SK_ID_CURR")["SK_DPD"].apply(lambda x: x.values[x.values > 0].sum() / x.shape[0])
-        pos_cash_balance_stats_df["normalized_nb_days_overdue_with_tolerance"] = pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD_DEF"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, False]).groupby("SK_ID_CURR")["SK_DPD_DEF"].apply(lambda x: x.values[x.values > 0].sum() / x.shape[0])
+        chunk_data_lst.append((subset_data1_df, None, 7))
+        chunk_data_lst.append((subset_data2_df, None, 8))
 
         # Look at which moment of the credit repayment the overdue appeared
-        pos_cash_balance_stats_df["overdue_apparition_in_installments"] = pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, True]).groupby("SK_ID_CURR")["SK_DPD"].apply(lambda x: (x.values > 0).argmax(axis = 0) / x.shape[0])
-        pos_cash_balance_stats_df["overdue_apparition_in_installments_with_tolerance"] = pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD_DEF"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, True]).groupby("SK_ID_CURR")["SK_DPD_DEF"].apply(lambda x: (x.values > 0).argmax(axis = 0) / x.shape[0])
+        chunk_data_lst.append((subset_data3_df, None, 9))
+        chunk_data_lst.append((subset_data4_df, None, 10))
+
+        # Look for trends in overdue
+        chunk_data_lst.append((subset_data3_df["SK_DPD"], None, "SK_DPD_trend"))
+        
+        pool = mp.Pool(self.n_jobs)
+        results_lst = pool.map(self.transform_pos_cash_worker, chunk_data_lst)
+        pool.close()
+        pool.join()
+
+        for result_sr, feature_name in results_lst:
+            pos_cash_balance_stats_df[feature_name] = result_sr
 
         # Add prefix to columns
         pos_cash_balance_stats_df.columns = ["pos_cash_balance_" + c for c in pos_cash_balance_stats_df.columns.tolist()]
@@ -559,6 +688,65 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
         print("    Pre-processing 'pos_cash_balance.csv'... done in", round(time.time() - st, 3), "secs")
 
         return pos_cash_balance_stats_df
+
+    def transform_installments_payments_worker(self, data):
+        # Unpack data
+        data_subset_df = data[0]
+        window = data[1]
+        processing_type = data[2]
+        
+        if window is None:
+            if processing_type == 5:
+                feature_name = "normalized_nb_overdue"
+                result_sr = data_subset_df["nb_overdue_days"].apply(lambda x: (x > 0).sum() / x.shape[0])
+            elif processing_type == 6:
+                feature_name = "normalized_nb_not_totally_paid"
+                result_sr = data_subset_df["PAYMENT_PERC"].apply(lambda x: (x < 1).sum() / x.shape[0])
+            elif processing_type == 7:
+                feature_name = "normalized_nb_days_overdue"
+                result_sr = data_subset_df["nb_overdue_days"].apply(lambda x: x.values[x.values > 0].sum() / x.shape[0])
+            elif processing_type == 8:
+                feature_name = "normalized_cumulated_not_totally_paid_amount"
+                result_sr = data_subset_df["PAYMENT_PERC"].apply(lambda x: (1 - x.values[x.values < 1]).sum() / x.shape[0])
+            elif processing_type == 9:
+                feature_name = "overdue_apparition_in_installments"
+                result_sr = data_subset_df["nb_overdue_days"].apply(lambda x: (x.values > 0).argmax(axis = 0) / x.shape[0])
+            elif processing_type == 10:
+                feature_name = "not_totally_paid_installment_apparition"
+                result_sr = data_subset_df["PAYMENT_PERC"].apply(lambda x: (x.values < 1).argmax(axis = 0) / x.shape[0])
+            elif type(processing_type) == str:
+                feature_name = processing_type
+                result_sr = data_subset_df.apply(lambda x: self.create_trend_feature(x))
+
+        elif window == 1:
+            if processing_type == 1:
+                feature_name = "last_installment_was_overdue"
+                result_sr = (data_subset_df.head(1).reset_index(drop = True)["nb_overdue_days"] > 0).astype(np.int8)
+            elif processing_type == 2:
+                feature_name = "last_installment_was_not_totally_paid"
+                result_sr = (data_subset_df.head(1).reset_index(drop = True)["PAYMENT_PERC"] < 1).astype(np.int8)
+            elif processing_type == 3:
+                feature_name = "first_installment_was_overdue"
+                result_sr = (data_subset_df.head(1).reset_index(drop = True)["nb_overdue_days"] > 0).astype(np.int8)
+            elif processing_type == 4:
+                feature_name = "first_installment_was_not_totally_paid"
+                result_sr = (data_subset_df.head(1).reset_index(drop = True)["PAYMENT_PERC"] < 1).astype(np.int8)
+
+        else:
+            if processing_type == 1:
+                feature_name = "nb_overdue_" + str(window) + "_last_installments"
+                result_sr = data_subset_df.head(window).groupby("SK_ID_CURR")["nb_overdue_days"].apply(lambda x: (x > 0).sum())
+            elif processing_type == 2:
+                feature_name = "nb_not_totally_paid_" + str(window) + "_last_installments"
+                result_sr = data_subset_df.head(window).groupby("SK_ID_CURR")["PAYMENT_PERC"].apply(lambda x: (x < 1).sum())
+            elif processing_type == 3:
+                feature_name = "nb_overdue_" + str(window) + "_first_installments"
+                result_sr = data_subset_df.head(window).groupby("SK_ID_CURR")["nb_overdue_days"].apply(lambda x: (x > 0).sum())
+            elif processing_type == 4:
+                feature_name = "nb_not_totally_paid_" + str(window) + "_first_installments"
+                result_sr = data_subset_df.head(window).groupby("SK_ID_CURR")["PAYMENT_PERC"].apply(lambda x: (x < 1).sum())
+
+        return (result_sr, feature_name)
 
     def transform_installments_payments_data(self, installments_payments_data_df):
         st = time.time()
@@ -597,42 +785,48 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
 
         installments_payments_stats_df["installment_overdue_ratio"] = installments_payments_stats_df["is_installment_overdue_sum"] / installments_payments_stats_df["number_of_installments"]
 
-        # Check if last installments were overdue
-        installments_payments_stats_df["last_installment_was_overdue"] = (installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "nb_overdue_days"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, False]).groupby("SK_ID_CURR").head(1).reset_index(drop = True)["nb_overdue_days"] > 0).astype(np.int8)
+        # Check if last and first installments were overdue
+        subset_data1_df = installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "nb_overdue_days"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, False]).groupby("SK_ID_CURR")
+        subset_data2_df = installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "PAYMENT_PERC"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, False]).groupby("SK_ID_CURR")
+        subset_data3_df = installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "nb_overdue_days"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, True]).groupby("SK_ID_CURR")
+        subset_data4_df = installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "PAYMENT_PERC"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, True]).groupby("SK_ID_CURR")
         
-        for window in [5, 10, 20]:
-            installments_payments_stats_df["nb_overdue_" + str(window) + "_last_installments"] = installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "nb_overdue_days"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, False]).groupby("SK_ID_CURR").head(window).groupby("SK_ID_CURR")["nb_overdue_days"].apply(lambda x: (x > 0).sum())
+        chunk_data_lst = []
+        # For last installments
+        for i in [1, 5, 10, 20]:
+            chunk_data_lst.append((subset_data1_df, i, 1))
+            chunk_data_lst.append((subset_data2_df, i, 2))
 
-        # Check if last installments were not totally paid
-        installments_payments_stats_df["last_installment_was_not_totally_paid"] = (installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "PAYMENT_PERC"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, False]).groupby("SK_ID_CURR").head(1).reset_index(drop = True)["PAYMENT_PERC"] < 1).astype(np.int8)
-
-        for window in [5, 10, 20]:
-            installments_payments_stats_df["nb_not_totally_paid_" + str(window) + "_last_installments"] = installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "PAYMENT_PERC"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, False]).groupby("SK_ID_CURR").head(window).groupby("SK_ID_CURR")["PAYMENT_PERC"].apply(lambda x: (x < 1).sum())
-
-        # Check if first installments were overdue
-        installments_payments_stats_df["first_installment_was_overdue"] = (installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "nb_overdue_days"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, True]).groupby("SK_ID_CURR").head(1).reset_index(drop = True)["nb_overdue_days"] > 0).astype(np.int8)
-        
-        for window in [5, 10, 20]:
-            installments_payments_stats_df["nb_overdue_" + str(window) + "_first_installments"] = installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "nb_overdue_days"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, True]).groupby("SK_ID_CURR").head(window).groupby("SK_ID_CURR")["nb_overdue_days"].apply(lambda x: (x > 0).sum())
-
-        # Check if first installments were not totally paid
-        installments_payments_stats_df["first_installment_was_not_totally_paid"] = (installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "PAYMENT_PERC"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, True]).groupby("SK_ID_CURR").head(1).reset_index(drop = True)["PAYMENT_PERC"] < 1).astype(np.int8)
-
-        for window in [5, 10, 20]:
-            installments_payments_stats_df["nb_not_totally_paid_" + str(window) + "_first_installments"] = installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "PAYMENT_PERC"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, True]).groupby("SK_ID_CURR").head(window).groupby("SK_ID_CURR")["PAYMENT_PERC"].apply(lambda x: (x < 1).sum())
+        """
+        # For first installments
+        for i in [1, 5, 10, 20]:
+            chunk_data_lst.append((subset_data3_df, i, 3))
+            chunk_data_lst.append((subset_data4_df, i, 4))"""
 
         # Number of overdues for each loan, normalized by the loan's length
-        installments_payments_stats_df["normalized_nb_overdue"] = installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "nb_overdue_days"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, False]).groupby("SK_ID_CURR")["nb_overdue_days"].apply(lambda x: (x > 0).sum() / x.shape[0])
-        installments_payments_stats_df["normalized_nb_not_totally_paid"] = installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "PAYMENT_PERC"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, False]).groupby("SK_ID_CURR")["PAYMENT_PERC"].apply(lambda x: (x < 1).sum() / x.shape[0])
-
+        chunk_data_lst.append((subset_data1_df, None, 5))
+        chunk_data_lst.append((subset_data2_df, None, 6))
+        
         # Cumulated number of overdue days normalized by loan's length
-        installments_payments_stats_df["normalized_nb_days_overdue"] = installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "nb_overdue_days"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, False]).groupby("SK_ID_CURR")["nb_overdue_days"].apply(lambda x: x.values[x.values > 0].sum() / x.shape[0])
-        installments_payments_stats_df["normalized_cumulated_not_totally_paid_amount"] = installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "PAYMENT_PERC"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, False]).groupby("SK_ID_CURR")["PAYMENT_PERC"].apply(lambda x: (1 - x.values[x.values < 1]).sum() / x.shape[0])
+        chunk_data_lst.append((subset_data1_df, None, 7))
+        chunk_data_lst.append((subset_data2_df, None, 8))
 
         # Look at which moment of the credit repayment the overdue appeared
-        installments_payments_stats_df["overdue_apparition_in_installments"] = installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "nb_overdue_days"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, True]).groupby("SK_ID_CURR")["nb_overdue_days"].apply(lambda x: (x.values > 0).argmax(axis = 0) / x.shape[0])
-        installments_payments_stats_df["not_totally_paid_installment_apparition"] = installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "PAYMENT_PERC"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, True]).groupby("SK_ID_CURR")["PAYMENT_PERC"].apply(lambda x: (x.values < 1).argmax(axis = 0) / x.shape[0])
+        chunk_data_lst.append((subset_data3_df, None, 9))
+        chunk_data_lst.append((subset_data4_df, None, 10))
+
+        # Look for trends in overdue
+        chunk_data_lst.append((subset_data3_df["nb_overdue_days"], None, "nb_overdue_days_trend"))
+        chunk_data_lst.append((subset_data4_df["PAYMENT_PERC"], None, "PAYMENT_PERC_trend"))
         
+        pool = mp.Pool(self.n_jobs)
+        results_lst = pool.map(self.transform_installments_payments_worker, chunk_data_lst)
+        pool.close()
+        pool.join()
+
+        for result_sr, feature_name in results_lst:
+            installments_payments_stats_df[feature_name] = result_sr
+
         # Add prefix to columns
         installments_payments_stats_df.columns = ["installments_payments_" + c for c in installments_payments_stats_df.columns.tolist()]
 
@@ -714,6 +908,12 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
         # Processing 'previous_application.csv'
         previous_application_stats_df = self.transform_previous_applications_data(previous_application_data_df, installments_payments_data_df)
 
+        # Doing some housekeeping
+        ## Remove constant features
+        tmp = previous_application_stats_df.nunique()
+        constant_features_lst = tmp.loc[tmp == 1].index.tolist()
+        previous_application_stats_df.drop(constant_features_lst, axis = 1, inplace = True)
+
         # Processing 'credit_card_balance.csv'
         card_balance_stats_df = self.transform_credit_card_balance_data(credit_card_balance_data_df)
         
@@ -734,7 +934,7 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
 
         return final_dataset_df
 
-    def fit_transform(self, bureau_data_df, bureau_balance_data_df, credit_card_balance_data_df, installments_payments_data_df, pos_cash_balance_data_df, previous_application_data_df):
+    def fit_transform(self, target_df, bureau_data_df, bureau_balance_data_df, credit_card_balance_data_df, installments_payments_data_df, pos_cash_balance_data_df, previous_application_data_df):
         """
         Fit to data, then transform it.
 
@@ -767,4 +967,6 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
                 Transformed data.
         """
         
+        self.y_train = target_df
+
         return self.fit(bureau_data_df, bureau_balance_data_df, credit_card_balance_data_df, installments_payments_data_df, pos_cash_balance_data_df, previous_application_data_df).transform(bureau_data_df, bureau_balance_data_df, credit_card_balance_data_df, installments_payments_data_df, pos_cash_balance_data_df, previous_application_data_df)

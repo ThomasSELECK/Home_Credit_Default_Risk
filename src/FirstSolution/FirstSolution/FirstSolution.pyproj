@@ -22,11 +22,7 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="data_preprocessing\AdditionalFilesPreprocessingStep_Fabien.py" />
-    <Compile Include="data_preprocessing\AdditionalFilesPreprocessingStep_Thomas.py" />
     <Compile Include="data_preprocessing\AdditionalFilesPreprocessingStep.py" />
-    <Compile Include="data_preprocessing\PreprocessingStep_Thomas.py" />
-    <Compile Include="data_preprocessing\PreprocessingStep_Fabien.py" />
     <Compile Include="data_preprocessing\PreprocessingStep.py" />
     <Compile Include="data_preprocessing\__init__.py">
       <SubType>Code</SubType>

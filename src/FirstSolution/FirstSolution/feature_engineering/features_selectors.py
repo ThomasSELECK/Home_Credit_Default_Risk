@@ -307,6 +307,10 @@ class LGBMFeatureSelector(BaseEstimator, TransformerMixin):
         for col_idx in range(len(self._removed_columns_lst)):
             self._removed_columns_lst[col_idx] = transformation_dict[self._removed_columns_lst[col_idx]]
 
+        # Temporary
+        feature_importance_df = self._model.get_features_importance()
+        feature_importance_df.to_excel("E:/lgbm_feature_selector_feature_importance.xlsx")
+
         return self
     
     def transform(self, X):

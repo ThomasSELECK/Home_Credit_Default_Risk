@@ -251,10 +251,12 @@ class PreprocessingStep(BaseEstimator, TransformerMixin):
 
         # Merge additional data to main dataframe
         print("    Merging additional data to main dataframe...")
+        st = time.time()
         #X["SK_ID_CURR"] = X.index
         X = X.reset_index()
         X = X.merge(self._final_dataset_df, how = "left", on = "SK_ID_CURR")
         X.index = X["SK_ID_CURR"] # => This influences model AUC. Why ?
+        print("    Merging additional data to main dataframe... done in", round(time.time() - st, 3), "secs")
                 
         # Drop ID        
         X.drop("SK_ID_CURR", axis = 1, inplace = True)
