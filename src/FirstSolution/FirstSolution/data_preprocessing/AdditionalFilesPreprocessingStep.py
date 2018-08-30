@@ -18,7 +18,6 @@ import numpy as np
 import pandas as pd
 import time
 import gc
-import multiprocessing as mp
 
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.preprocessing import LabelBinarizer
@@ -44,9 +43,7 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
         None
         """
 
-        self.n_jobs = 16
-
-    def create_trend_feature(self, feature_sr):
+    def _create_trend_feature(self, feature_sr):
         y = feature_sr.values
         try:
             x = np.arange(0, len(y)).reshape(-1, 1)
@@ -115,8 +112,8 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
         self._previous_application_categ_feats_lst = ["NAME_CONTRACT_TYPE", "WEEKDAY_APPR_PROCESS_START", "FLAG_LAST_APPL_PER_CONTRACT", "NAME_CASH_LOAN_PURPOSE", "NAME_PAYMENT_TYPE", 
                                                       "NAME_TYPE_SUITE", "NAME_CLIENT_TYPE", "NAME_GOODS_CATEGORY", "NAME_PORTFOLIO", "NAME_PRODUCT_TYPE", "CHANNEL_TYPE", 
                                                       "NAME_SELLER_INDUSTRY", "NAME_YIELD_GROUP", "PRODUCT_COMBINATION"]
-        self._previous_application_encoders_lst = [LabelBinarizer(), LabelBinarizer(), OrdinalEncoder(), LabelBinarizer(), LabelBinarizer(), 
-                                                   LabelBinarizer(), LabelBinarizer(), LabelBinarizer(), LabelBinarizer(), LabelBinarizer(), LabelBinarizer(), 
+        self._previous_application_encoders_lst = [LabelBinarizer(), LabelBinarizer(), OrdinalEncoder(), GroupingEncoder(LabelBinarizer(), 23), LabelBinarizer(), 
+                                                   LabelBinarizer(), LabelBinarizer(), GroupingEncoder(LabelBinarizer(), 25), LabelBinarizer(), LabelBinarizer(), LabelBinarizer(), 
                                                    LabelBinarizer(), LabelBinarizer(), LabelBinarizer()]
 
         self._bureau_categ_feats_lst = ["CREDIT_ACTIVE", "CREDIT_CURRENCY", "CREDIT_TYPE"]
@@ -158,8 +155,40 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
         
         return self
 
-    def transform_bureau_balance_data(self, bureau_data_df, bureau_balance_data_df):
-        st = time.time()
+    def transform(self, bureau_data_df, bureau_balance_data_df, credit_card_balance_data_df, installments_payments_data_df, pos_cash_balance_data_df, previous_application_data_df):
+        """
+        This method is called to fit the transformer on the training data.
+
+        Parameters
+        ----------
+        bureau_data_df : pd.DataFrame
+                Additional data frame.
+
+        bureau_balance_data_df : pd.DataFrame
+                Additional data frame.
+
+        credit_card_balance_data_df : pd.DataFrame
+                Additional data frame.
+
+        installments_payments_data_df : pd.DataFrame
+                Additional data frame.
+
+        pos_cash_balance_data_df : pd.DataFrame
+                Additional data frame.
+
+        previous_application_data_df : pd.DataFrame
+                Additional data frame.
+                
+        Returns
+        -------
+        X : pd.DataFrame
+                This is a data frame containing the data that will be transformed.
+        """
+                    
+        print("Additional files preprocessing data...")    
+
+        # Processing 'bureau_balance.csv'
+        
         print("    Pre-processing 'bureau_balance.csv'...")
         bureau_balance_stats_df = self._flatten_columns_names(bureau_balance_data_df.select_dtypes(include = np.number).groupby("SK_ID_BUREAU").agg(["mean", "std", "min", "max", "sum", "nunique"]))
         bureau_balance_stats2_df = self._flatten_columns_names(bureau_balance_data_df[bureau_balance_data_df.select_dtypes(include = "object").columns.tolist() + ["SK_ID_BUREAU"]].groupby("SK_ID_BUREAU").agg(["nunique"]))
@@ -174,32 +203,31 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
 
         bureau_data_df = bureau_data_df.join(bureau_balance_features_df, how = "left", on = "SK_ID_BUREAU")
 
-        print("    Pre-processing 'bureau_balance.csv'... done in", round(time.time() - st, 3), "secs")
-
-        return bureau_data_df
-
-    def transform_bureau_data(self, bureau_data_df, bureau_balance_data_df):
-        # Processing 'bureau_balance.csv'
-        bureau_data_df = self.transform_bureau_balance_data(bureau_data_df, bureau_balance_data_df)
-
-        st = time.time()
+        # Processing 'bureau.csv'
         print("    Pre-processing 'bureau.csv'...")
 
         # Replace outliers with NaNs
         bureau_data_df["DAYS_CREDIT_ENDDATE"].loc[bureau_data_df["DAYS_CREDIT_ENDDATE"] < -5000] = np.nan
         bureau_data_df["DAYS_CREDIT_UPDATE"].loc[bureau_data_df["DAYS_CREDIT_UPDATE"] < -40000] = np.nan
         bureau_data_df["DAYS_ENDDATE_FACT"].loc[bureau_data_df["DAYS_ENDDATE_FACT"] < -40000] = np.nan
-        bureau_data_df["AMT_CREDIT_MAX_OVERDUE"].loc[bureau_data_df["AMT_CREDIT_MAX_OVERDUE"] > 200000] = np.nan
-        bureau_data_df["AMT_ANNUITY"].loc[bureau_data_df["AMT_ANNUITY"] > 1000000] = np.nan
 
         # Count number of missing values by row
         bureau_data_df["missing_values_count"] = bureau_data_df.isnull().sum(axis = 1)
 
         # Encode categorical features
+        tmp_df = bureau_data_df[["SK_ID_CURR", "CREDIT_ACTIVE", "CREDIT_TYPE"]]
+        tmp_df = tmp_df.merge(self.y_train, how = "left", on = "SK_ID_CURR")
+
+        credit_active_mapping_dict = tmp_df[["CREDIT_ACTIVE", "target"]].groupby("CREDIT_ACTIVE").agg(lambda x: x.sum() / x.shape[0]).to_dict()["target"]
+        bureau_data_df["CREDIT_ACTIVE_TgtAvg"] = bureau_data_df["CREDIT_ACTIVE"].map(credit_active_mapping_dict)
+
+        credit_type_mapping_dict = tmp_df[["CREDIT_TYPE", "target"]].groupby("CREDIT_TYPE").agg(lambda x: x.sum() / x.shape[0]).to_dict()["target"]
+        bureau_data_df["CREDIT_TYPE_TgtAvg"] = bureau_data_df["CREDIT_TYPE"].map(credit_type_mapping_dict)
+
         bureau_data_df = self._bureau_cfe.transform(bureau_data_df)
 
         # Impute NAs
-        bureau_data_df[["AMT_CREDIT_SUM_DEBT", "AMT_CREDIT_SUM_LIMIT", "AMT_CREDIT_MAX_OVERDUE", "DAYS_CREDIT_ENDDATE", "DAYS_CREDIT_UPDATE"]].fillna(0, inplace = True)
+        bureau_data_df[["AMT_CREDIT_SUM_DEBT", "AMT_CREDIT_SUM_LIMIT", "AMT_CREDIT_MAX_OVERDUE"]].fillna(0, inplace = True)
 
         ## Credit duration
         bureau_data_df["credit_duration"] = bureau_data_df["DAYS_CREDIT_ENDDATE"] - bureau_data_df["DAYS_CREDIT"]
@@ -336,16 +364,23 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
         bureau_data_df["CNT_CREDIT_PROLONG"] = bureau_data_df["CNT_CREDIT_PROLONG"].fillna(0)
         grp = bureau_data_df[["SK_ID_CURR", "CNT_CREDIT_PROLONG"]].groupby(by = ["SK_ID_CURR"])["CNT_CREDIT_PROLONG"].mean().reset_index().rename(index = str, columns = { "CNT_CREDIT_PROLONG": "AVG_CREDITDAYS_PROLONGED"})
         bureau_stats_df = bureau_stats_df.merge(grp, on = ["SK_ID_CURR"], how = "left")
+
+        # Do some housekeeping
+        ## Remove features with more than 80% of missing values
+        tmp = bureau_stats_df.isnull().sum()
+        too_many_nas_features_lst = tmp.loc[tmp > 0.8 * bureau_stats_df.shape[0]].index.tolist()
+        bureau_stats_df.drop(too_many_nas_features_lst, axis = 1, inplace = True)
+
+        ## Remove duplicated features
+        duplicated_features_lst = ["AVG_CREDITDAYS_PROLONGED", "TOTAL_CUSTOMER_CREDIT", "TOTAL_CUSTOMER_DEBT", "TOTAL_CUSTOMER_OVERDUE", "CREDIT_ENDDATE_PERCENTAGE",
+                                   "AVG_ENDDATE_FUTURE", "bureau_count", "nb_bureau_records", "BUREAU_LOAN_COUNT"]
+
+        bureau_stats_df.drop(duplicated_features_lst, axis = 1, inplace = True)
                 
         # Add prefix to columns
         bureau_stats_df.columns = ["bureau_" + c if c != "SK_ID_CURR" else c for c in bureau_stats_df.columns.tolist()]
 
-        print("    Pre-processing 'bureau.csv'... done in", round(time.time() - st, 3), "secs")
-
-        return bureau_stats_df
-
-    def transform_previous_applications_data(self, previous_application_data_df, installments_payments_data_df):
-        st = time.time()
+        # Processing 'previous_application.csv'
         print("    Pre-processing 'previous_application.csv'...")
 
         # Replace missing values flags by NaNs
@@ -398,44 +433,16 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
         previous_application_data_df = previous_application_data_df.merge(tmp, how = "left", on = ["SK_ID_CURR", "SK_ID_PREV"])
         
         # Encode categorical features
-        tmp_df = previous_application_data_df[["SK_ID_CURR", "PRODUCT_COMBINATION", "NAME_YIELD_GROUP", "NAME_CONTRACT_STATUS", "NAME_CASH_LOAN_PURPOSE"]]
+        to_be_encoded_features_lst = ["PRODUCT_COMBINATION", "NAME_YIELD_GROUP", "NAME_CONTRACT_STATUS", "NAME_CASH_LOAN_PURPOSE", "NAME_CONTRACT_TYPE", "NAME_CLIENT_TYPE", 
+                                      "NAME_GOODS_CATEGORY", "NAME_PORTFOLIO", "NAME_PRODUCT_TYPE", "CHANNEL_TYPE"]
+        tmp_df = previous_application_data_df[["SK_ID_CURR"] + to_be_encoded_features_lst]
         tmp_df = tmp_df.merge(self.y_train, how = "left", on = "SK_ID_CURR")
 
-        name_yield_group_mapping_dict = tmp_df[["NAME_YIELD_GROUP", "target"]].groupby("NAME_YIELD_GROUP").agg(lambda x: x.sum() / x.shape[0]).to_dict()["target"]
-        previous_application_data_df["NAME_YIELD_GROUP_TgtAvg"] = previous_application_data_df["NAME_YIELD_GROUP"].map(name_yield_group_mapping_dict)
-
-        product_combination_mapping_dict = tmp_df[["PRODUCT_COMBINATION", "target"]].groupby("PRODUCT_COMBINATION").agg(lambda x: x.sum() / x.shape[0]).to_dict()["target"]
-        previous_application_data_df["PRODUCT_COMBINATION_TgtAvg"] = previous_application_data_df["PRODUCT_COMBINATION"].map(product_combination_mapping_dict)
-
-        name_contract_status_mapping_dict = tmp_df[["NAME_CONTRACT_STATUS", "target"]].groupby("NAME_CONTRACT_STATUS").agg(lambda x: x.sum() / x.shape[0]).to_dict()["target"]
-        previous_application_data_df["NAME_CONTRACT_STATUS_TgtAvg"] = previous_application_data_df["NAME_CONTRACT_STATUS"].map(product_combination_mapping_dict)
-
-        name_cash_loan_purpose_mapping_dict = tmp_df[["NAME_CASH_LOAN_PURPOSE", "target"]].groupby("NAME_CASH_LOAN_PURPOSE").agg(lambda x: x.sum() / x.shape[0]).to_dict()["target"]
-        previous_application_data_df["NAME_CASH_LOAN_PURPOSE_TgtAvg"] = previous_application_data_df["NAME_CASH_LOAN_PURPOSE"].map(name_cash_loan_purpose_mapping_dict)
+        for feature in to_be_encoded_features_lst:
+            feature_mapping_dict = tmp_df[[feature, "target"]].groupby(feature).agg(lambda x: x.sum() / x.shape[0]).to_dict()["target"]
+            previous_application_data_df[feature + "_TgtAvg"] = previous_application_data_df[feature].map(feature_mapping_dict)
 
         previous_application_data_df = self._previous_application_cfe.transform(previous_application_data_df)
-
-        # Remove useless features
-        useless_features_lst = ["CHANNEL_TYPE_AP+ (Cash loan)", "CHANNEL_TYPE_Car dealer", "CHANNEL_TYPE_Channel of corporate sales", "CHANNEL_TYPE_Contact center", 
-                                "CHANNEL_TYPE_Credit and cash offices", "CHANNEL_TYPE_Regional / Local", "NAME_CASH_LOAN_PURPOSE_Building a house or an annex", "NAME_CASH_LOAN_PURPOSE_Business development", 
-                                "NAME_CASH_LOAN_PURPOSE_Buying a garage", "NAME_CASH_LOAN_PURPOSE_Buying a holiday home / land", "NAME_CASH_LOAN_PURPOSE_Buying a home", "NAME_CASH_LOAN_PURPOSE_Buying a new car", 
-                                "NAME_CASH_LOAN_PURPOSE_Buying a used car", "NAME_CASH_LOAN_PURPOSE_Car repairs", "NAME_CASH_LOAN_PURPOSE_Education", "NAME_CASH_LOAN_PURPOSE_Everyday expenses", 
-                                "NAME_CASH_LOAN_PURPOSE_Furniture", "NAME_CASH_LOAN_PURPOSE_Gasification / water supply", "NAME_CASH_LOAN_PURPOSE_Journey", "NAME_CASH_LOAN_PURPOSE_Money for a third person", 
-                                "NAME_CASH_LOAN_PURPOSE_Payments on other loans", "NAME_CASH_LOAN_PURPOSE_Purchase of electronic equipment", "NAME_CASH_LOAN_PURPOSE_Refusal to name the goal", "NAME_CASH_LOAN_PURPOSE_Urgent needs", 
-                                "NAME_CASH_LOAN_PURPOSE_Wedding / gift / holiday", "NAME_CLIENT_TYPE_XNA", "NAME_CONTRACT_TYPE_Cash loans", "NAME_CONTRACT_TYPE_Consumer loans", 
-                                "NAME_CONTRACT_TYPE_Revolving loans", "NAME_GOODS_CATEGORY_Additional Service", "NAME_GOODS_CATEGORY_Auto Accessories", "NAME_GOODS_CATEGORY_Clothing and Accessories", 
-                                "NAME_GOODS_CATEGORY_Construction Materials", "NAME_GOODS_CATEGORY_Consumer Electronics", "NAME_GOODS_CATEGORY_Direct Sales", "NAME_GOODS_CATEGORY_Education", 
-                                "NAME_GOODS_CATEGORY_Fitness", "NAME_GOODS_CATEGORY_Gardening", "NAME_GOODS_CATEGORY_Homewares", "NAME_GOODS_CATEGORY_Insurance", 
-                                "NAME_GOODS_CATEGORY_Medical Supplies", "NAME_GOODS_CATEGORY_Medicine", "NAME_GOODS_CATEGORY_Office Appliances", "NAME_GOODS_CATEGORY_Other", 
-                                "NAME_GOODS_CATEGORY_Photo / Cinema Equipment", "NAME_GOODS_CATEGORY_Sport and Leisure", "NAME_GOODS_CATEGORY_Tourism", "NAME_GOODS_CATEGORY_Weapon", 
-                                "NAME_PAYMENT_TYPE_Cash through the bank", "NAME_PAYMENT_TYPE_Cashless from the account of the employer", "NAME_PAYMENT_TYPE_Non-cash from your account", 
-                                "NAME_PORTFOLIO_Cars", "NAME_SELLER_INDUSTRY_Auto technology", "NAME_SELLER_INDUSTRY_Consumer electronics", "NAME_SELLER_INDUSTRY_Jewelry", 
-                                "NAME_SELLER_INDUSTRY_MLM partners", "NAME_SELLER_INDUSTRY_Tourism", "NAME_TYPE_SUITE_Group of people", "NAME_TYPE_SUITE_Spouse, partner", 
-                                "PRODUCT_COMBINATION_Card Street", "PRODUCT_COMBINATION_Card X-Sell", "PRODUCT_COMBINATION_Cash Street: high", "PRODUCT_COMBINATION_Cash Street: low", 
-                                "PRODUCT_COMBINATION_Cash Street: middle", "PRODUCT_COMBINATION_Cash X-Sell: high", "PRODUCT_COMBINATION_Cash X-Sell: low", "PRODUCT_COMBINATION_Cash X-Sell: middle", 
-                                "PRODUCT_COMBINATION_POS household with interest", "PRODUCT_COMBINATION_POS household without interest", "PRODUCT_COMBINATION_POS industry with interest", "PRODUCT_COMBINATION_POS industry without interest", 
-                                "PRODUCT_COMBINATION_POS mobile with interest", "PRODUCT_COMBINATION_POS mobile without interest", "PRODUCT_COMBINATION_POS other with interest", "PRODUCT_COMBINATION_POS others without interest"]
-        previous_application_data_df.drop(useless_features_lst, axis = 1, inplace = True)
 
         # Compute average values and counts
         previous_application_stats_df = self._flatten_columns_names(previous_application_data_df.select_dtypes(include = np.number).drop("SK_ID_PREV", axis = 1).groupby("SK_ID_CURR").agg(["mean", "std", "min", "max", "sum", "nunique"]))
@@ -451,17 +458,21 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
 
         # Look for trends
         subset_data1_df = previous_application_data_df[["SK_ID_CURR", "DAYS_DECISION", "NAME_YIELD_GROUP_TgtAvg"]].sort_values(["SK_ID_CURR", "DAYS_DECISION"], ascending = [True, True]).groupby("SK_ID_CURR")
-        previous_application_stats_df["NAME_YIELD_GROUP_trend"] = subset_data1_df["NAME_YIELD_GROUP_TgtAvg"].apply(lambda x: self.create_trend_feature(x))
+        previous_application_stats_df["NAME_YIELD_GROUP_trend"] = subset_data1_df["NAME_YIELD_GROUP_TgtAvg"].apply(lambda x: self._create_trend_feature(x))
+
+        # Do some housekeeping
+        ## Remove duplicated features
+        duplicated_features_lst = ["credit_length_months_nunique", "NAME_CASH_LOAN_PURPOSE_XAP_std", "NAME_CASH_LOAN_PURPOSE_XAP_nunique",
+                                   "PRODUCT_COMBINATION_NA_mean", "PRODUCT_COMBINATION_NA_std", "NAME_CONTRACT_TYPE_XNA_max", 
+                                   "PRODUCT_COMBINATION_NA_nunique", "NAME_CONTRACT_TYPE_XNA_sum", "PRODUCT_COMBINATION_NA_sum", "PRODUCT_COMBINATION_NA_max", 
+                                   "NAME_CONTRACT_TYPE_XNA_nunique", "NAME_CONTRACT_STATUS_Unused offer"]
+        
+        previous_application_stats_df.drop(duplicated_features_lst, axis = 1, inplace = True)
 
         # Add prefix to columns
         previous_application_stats_df.columns = ["previous_application_" + c if c != "SK_ID_CURR" else c for c in previous_application_stats_df.columns.tolist()]
 
-        print("    Pre-processing 'previous_application.csv'... done in", round(time.time() - st, 3), "secs")
-
-        return previous_application_stats_df
-
-    def transform_credit_card_balance_data(self, credit_card_balance_data_df):
-        st = time.time()
+        # Processing 'credit_card_balance.csv'
         print("    Pre-processing 'credit_card_balance.csv'...")
 
         # Replace outliers with NaNs
@@ -472,6 +483,12 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
         credit_card_balance_data_df["missing_values_count"] = credit_card_balance_data_df.isnull().sum(axis = 1)
 
         # Encode categorical features
+        tmp_df = credit_card_balance_data_df[["SK_ID_CURR", "NAME_CONTRACT_STATUS"]]
+        tmp_df = tmp_df.merge(self.y_train, how = "left", on = "SK_ID_CURR")
+
+        name_contract_status_mapping_dict = tmp_df[["NAME_CONTRACT_STATUS", "target"]].groupby("NAME_CONTRACT_STATUS").agg(lambda x: x.sum() / x.shape[0]).to_dict()["target"]
+        credit_card_balance_data_df["NAME_CONTRACT_STATUS_TgtAvg"] = credit_card_balance_data_df["NAME_CONTRACT_STATUS"].map(name_contract_status_mapping_dict)
+
         credit_card_balance_data_df = self._credit_card_balance_cfe.transform(credit_card_balance_data_df)
 
         # Compute average values and counts
@@ -554,72 +571,8 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
         
         # Add prefix to columns
         card_balance_stats_df.columns = ["credit_card_balance_" + c if c != "SK_ID_CURR" else c for c in card_balance_stats_df.columns.tolist()]
-
-        print("    Pre-processing 'credit_card_balance.csv'... done in", round(time.time() - st, 3), "secs")
-
-        return card_balance_stats_df
-
-    def transform_pos_cash_worker(self, data):
-        # Unpack data
-        data_subset_df = data[0]
-        window = data[1]
-        processing_type = data[2]
-
-        if window is None:
-            if processing_type == 5:
-                feature_name = "normalized_nb_overdue"
-                result_sr = data_subset_df["SK_DPD"].apply(lambda x: (x > 0).sum() / x.shape[0])
-            elif processing_type == 6:
-                feature_name = "normalized_nb_overdue_with_tolerance"
-                result_sr = data_subset_df["SK_DPD_DEF"].apply(lambda x: (x > 0).sum() / x.shape[0])
-            elif processing_type == 7:
-                feature_name = "normalized_nb_days_overdue"
-                result_sr = data_subset_df["SK_DPD"].apply(lambda x: x.values[x.values > 0].sum() / x.shape[0])
-            elif processing_type == 8:
-                feature_name = "normalized_nb_days_overdue_with_tolerance"
-                result_sr = data_subset_df["SK_DPD_DEF"].apply(lambda x: x.values[x.values > 0].sum() / x.shape[0])
-            elif processing_type == 9:
-                feature_name = "overdue_apparition_in_installments"
-                result_sr = data_subset_df["SK_DPD"].apply(lambda x: (x.values > 0).argmax(axis = 0) / x.shape[0])
-            elif processing_type == 10:
-                feature_name = "overdue_apparition_in_installments_with_tolerance"
-                result_sr = data_subset_df["SK_DPD_DEF"].apply(lambda x: (x.values > 0).argmax(axis = 0) / x.shape[0])
-            elif type(processing_type) == str:
-                feature_name = processing_type
-                result_sr = data_subset_df.apply(lambda x: self.create_trend_feature(x))
-
-        elif window == 1:
-            if processing_type == 1:
-                feature_name = "last_installment_was_overdue"
-                result_sr = (data_subset_df.head(1).reset_index(drop = True)["SK_DPD"] > 0).astype(np.int8)
-            elif processing_type == 2:
-                feature_name = "last_installment_was_overdue_with_tolerance"
-                result_sr = (data_subset_df.head(1).reset_index(drop = True)["SK_DPD_DEF"] > 0).astype(np.int8)
-            elif processing_type == 3:
-                feature_name = "first_installment_was_overdue"
-                result_sr = (data_subset_df.head(1).reset_index(drop = True)["SK_DPD"] > 0).astype(np.int8)
-            elif processing_type == 4:
-                feature_name = "first_installment_was_overdue_with_tolerance"
-                result_sr = (data_subset_df.head(1).reset_index(drop = True)["SK_DPD_DEF"] > 0).astype(np.int8)
-
-        else:
-            if processing_type == 1:
-                feature_name = "nb_overdue_" + str(window) + "_last_installments"
-                result_sr = data_subset_df.head(window).groupby("SK_ID_CURR")["SK_DPD"].apply(lambda x: (x > 0).sum())
-            elif processing_type == 2:
-                feature_name = "nb_overdue_" + str(window) + "_last_installments_with_tolerance"
-                result_sr = data_subset_df.head(window).groupby("SK_ID_CURR")["SK_DPD_DEF"].apply(lambda x: (x > 0).sum())
-            elif processing_type == 3:
-                feature_name = "nb_overdue_" + str(window) + "_first_installments"
-                result_sr = data_subset_df.head(window).groupby("SK_ID_CURR")["SK_DPD"].apply(lambda x: (x > 0).sum())
-            elif processing_type == 4:
-                feature_name = "nb_overdue_" + str(window) + "_first_installments_with_tolerance"
-                result_sr = data_subset_df.head(window).groupby("SK_ID_CURR")["SK_DPD_DEF"].apply(lambda x: (x > 0).sum())
-
-        return (result_sr, feature_name)
-
-    def transform_pos_cash_balance_data(self, pos_cash_balance_data_df):
-        st = time.time()
+        
+        # Processing 'pos_cash_balance.csv'
         print("    Pre-processing 'pos_cash_balance.csv'...")
 
         # Count number of missing values by row
@@ -635,121 +588,40 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
         pos_cash_balance_data_df["high_debt_ratio_overdue"] = pos_cash_balance_data_df["SK_DPD_DEF"] / pos_cash_balance_data_df["SK_DPD"]
 
         # Encode categorical features
+        tmp_df = pos_cash_balance_data_df[["SK_ID_CURR", "NAME_CONTRACT_STATUS"]]
+        tmp_df = tmp_df.merge(self.y_train, how = "left", on = "SK_ID_CURR")
+
+        name_contract_status_mapping_dict = tmp_df[["NAME_CONTRACT_STATUS", "target"]].groupby("NAME_CONTRACT_STATUS").agg(lambda x: x.sum() / x.shape[0]).to_dict()["target"]
+        pos_cash_balance_data_df["NAME_CONTRACT_STATUS_TgtAvg"] = pos_cash_balance_data_df["NAME_CONTRACT_STATUS"].map(name_contract_status_mapping_dict)
+
         pos_cash_balance_data_df = self._pos_cash_balance_cfe.transform(pos_cash_balance_data_df)
 
         # Compute average values and counts
         pos_cash_balance_stats_df = self._flatten_columns_names(pos_cash_balance_data_df.select_dtypes(include = np.number).drop("SK_ID_PREV", axis = 1).groupby("SK_ID_CURR").agg(["mean", "std", "min", "max", "sum", "nunique"]))
         pos_cash_balance_stats_df["nb_pcb"] = pos_cash_balance_data_df[["SK_ID_CURR", "SK_ID_PREV"]].groupby("SK_ID_CURR").count()["SK_ID_PREV"]
 
-        # Check if last and first installments were overdue
-        subset_data1_df = pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, False]).groupby("SK_ID_CURR")
-        subset_data2_df = pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD_DEF"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, False]).groupby("SK_ID_CURR")
-        subset_data3_df = pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, True]).groupby("SK_ID_CURR")
-        subset_data4_df = pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD_DEF"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, True]).groupby("SK_ID_CURR")
-
-        chunk_data_lst = []
-        # For last installments
-        for i in [1, 5, 10, 20]:
-            chunk_data_lst.append((subset_data1_df, i, 1))
-            chunk_data_lst.append((subset_data2_df, i, 2))
-
-        """
-        # For first installments
-        for i in [1, 5, 10, 20]:
-            chunk_data_lst.append((subset_data3_df, i, 3))
-            chunk_data_lst.append((subset_data4_df, i, 4))"""
-
-        # Number of overdues for each loan, normalized by the loan's length
-        chunk_data_lst.append((subset_data1_df, None, 5))
-        chunk_data_lst.append((subset_data2_df, None, 6))
+        # Check if last installments were overdue
+        pos_cash_balance_stats_df["last_installment_was_overdue"] = (pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, False]).groupby("SK_ID_CURR").head(1).reset_index(drop = True)["SK_DPD"] > 0).astype(np.int8)
+        pos_cash_balance_stats_df["last_installment_was_overdue_with_tolerance"] = (pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD_DEF"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, False]).groupby("SK_ID_CURR").head(1).reset_index(drop = True)["SK_DPD_DEF"] > 0).astype(np.int8)
+        #pos_cash_balance_stats_df["last_installment_was_overdue_low_debt"] = (pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "low_debt_overdue"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, False]).groupby("SK_ID_CURR").head(1).reset_index(drop = True)["low_debt_overdue"] > 0).astype(np.int8)
         
-        # Cumulated number of overdue days normalized by loan's length
-        chunk_data_lst.append((subset_data1_df, None, 7))
-        chunk_data_lst.append((subset_data2_df, None, 8))
-
-        # Look at which moment of the credit repayment the overdue appeared
-        chunk_data_lst.append((subset_data3_df, None, 9))
-        chunk_data_lst.append((subset_data4_df, None, 10))
+        for window in [5, 10, 20]:
+            pos_cash_balance_stats_df["nb_overdue_" + str(window) + "_last_installments"] = pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, False]).groupby("SK_ID_CURR").head(window).groupby("SK_ID_CURR")["SK_DPD"].apply(lambda x: (x > 0).sum())
+            pos_cash_balance_stats_df["nb_overdue_" + str(window) + "_last_installments_with_tolerance"] = pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD_DEF"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, False]).groupby("SK_ID_CURR").head(window).groupby("SK_ID_CURR")["SK_DPD_DEF"].apply(lambda x: (x > 0).sum())
+            #pos_cash_balance_stats_df["nb_overdue_" + str(window) + "_last_installments_low_debt"] = pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "low_debt_overdue"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, False]).groupby("SK_ID_CURR").head(window).groupby("SK_ID_CURR")["low_debt_overdue"].apply(lambda x: (x > 0).sum())
 
         # Look for trends in overdue
-        chunk_data_lst.append((subset_data3_df["SK_DPD"], None, "SK_DPD_trend"))
-        
-        pool = mp.Pool(self.n_jobs)
-        results_lst = pool.map(self.transform_pos_cash_worker, chunk_data_lst)
-        pool.close()
-        pool.join()
+        subset_data3_df = pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, True]).groupby("SK_ID_CURR")
+        pos_cash_balance_stats_df["SK_DPD_trend"] = subset_data3_df["SK_DPD"].apply(lambda x: self._create_trend_feature(x))
 
-        for result_sr, feature_name in results_lst:
-            pos_cash_balance_stats_df[feature_name] = result_sr
+        #pos_cash_balance_stats_df["all_last_installments_were_overdue"] = pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, False]).groupby("SK_ID_CURR")["SK_DPD"].apply(lambda x: int((x > 0).sum() == x.shape[0]))
+        #pos_cash_balance_stats_df["all_last_installments_were_overdue_with_tolerance"] = pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "SK_DPD_DEF"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, False]).groupby("SK_ID_CURR")["SK_DPD_DEF"].apply(lambda x: int((x > 0).sum() == x.shape[0]))
+        #pos_cash_balance_stats_df["all_last_installments_were_overdue_low_debt"] = pos_cash_balance_data_df[["SK_ID_CURR", "MONTHS_BALANCE", "low_debt_overdue"]].sort_values(["SK_ID_CURR", "MONTHS_BALANCE"], ascending = [True, False]).groupby("SK_ID_CURR")["low_debt_overdue"].apply(lambda x: int((x > 0).sum() == x.shape[0]))
 
         # Add prefix to columns
         pos_cash_balance_stats_df.columns = ["pos_cash_balance_" + c for c in pos_cash_balance_stats_df.columns.tolist()]
 
-        print("    Pre-processing 'pos_cash_balance.csv'... done in", round(time.time() - st, 3), "secs")
-
-        return pos_cash_balance_stats_df
-
-    def transform_installments_payments_worker(self, data):
-        # Unpack data
-        data_subset_df = data[0]
-        window = data[1]
-        processing_type = data[2]
-        
-        if window is None:
-            if processing_type == 5:
-                feature_name = "normalized_nb_overdue"
-                result_sr = data_subset_df["nb_overdue_days"].apply(lambda x: (x > 0).sum() / x.shape[0])
-            elif processing_type == 6:
-                feature_name = "normalized_nb_not_totally_paid"
-                result_sr = data_subset_df["PAYMENT_PERC"].apply(lambda x: (x < 1).sum() / x.shape[0])
-            elif processing_type == 7:
-                feature_name = "normalized_nb_days_overdue"
-                result_sr = data_subset_df["nb_overdue_days"].apply(lambda x: x.values[x.values > 0].sum() / x.shape[0])
-            elif processing_type == 8:
-                feature_name = "normalized_cumulated_not_totally_paid_amount"
-                result_sr = data_subset_df["PAYMENT_PERC"].apply(lambda x: (1 - x.values[x.values < 1]).sum() / x.shape[0])
-            elif processing_type == 9:
-                feature_name = "overdue_apparition_in_installments"
-                result_sr = data_subset_df["nb_overdue_days"].apply(lambda x: (x.values > 0).argmax(axis = 0) / x.shape[0])
-            elif processing_type == 10:
-                feature_name = "not_totally_paid_installment_apparition"
-                result_sr = data_subset_df["PAYMENT_PERC"].apply(lambda x: (x.values < 1).argmax(axis = 0) / x.shape[0])
-            elif type(processing_type) == str:
-                feature_name = processing_type
-                result_sr = data_subset_df.apply(lambda x: self.create_trend_feature(x))
-
-        elif window == 1:
-            if processing_type == 1:
-                feature_name = "last_installment_was_overdue"
-                result_sr = (data_subset_df.head(1).reset_index(drop = True)["nb_overdue_days"] > 0).astype(np.int8)
-            elif processing_type == 2:
-                feature_name = "last_installment_was_not_totally_paid"
-                result_sr = (data_subset_df.head(1).reset_index(drop = True)["PAYMENT_PERC"] < 1).astype(np.int8)
-            elif processing_type == 3:
-                feature_name = "first_installment_was_overdue"
-                result_sr = (data_subset_df.head(1).reset_index(drop = True)["nb_overdue_days"] > 0).astype(np.int8)
-            elif processing_type == 4:
-                feature_name = "first_installment_was_not_totally_paid"
-                result_sr = (data_subset_df.head(1).reset_index(drop = True)["PAYMENT_PERC"] < 1).astype(np.int8)
-
-        else:
-            if processing_type == 1:
-                feature_name = "nb_overdue_" + str(window) + "_last_installments"
-                result_sr = data_subset_df.head(window).groupby("SK_ID_CURR")["nb_overdue_days"].apply(lambda x: (x > 0).sum())
-            elif processing_type == 2:
-                feature_name = "nb_not_totally_paid_" + str(window) + "_last_installments"
-                result_sr = data_subset_df.head(window).groupby("SK_ID_CURR")["PAYMENT_PERC"].apply(lambda x: (x < 1).sum())
-            elif processing_type == 3:
-                feature_name = "nb_overdue_" + str(window) + "_first_installments"
-                result_sr = data_subset_df.head(window).groupby("SK_ID_CURR")["nb_overdue_days"].apply(lambda x: (x > 0).sum())
-            elif processing_type == 4:
-                feature_name = "nb_not_totally_paid_" + str(window) + "_first_installments"
-                result_sr = data_subset_df.head(window).groupby("SK_ID_CURR")["PAYMENT_PERC"].apply(lambda x: (x < 1).sum())
-
-        return (result_sr, feature_name)
-
-    def transform_installments_payments_data(self, installments_payments_data_df):
-        st = time.time()
+        # Processing 'installments_payments.csv'
         print("    Pre-processing 'installments_payments.csv'...")
 
         # Count number of missing values by row
@@ -785,153 +657,47 @@ class AdditionalFilesPreprocessingStep(BaseEstimator, TransformerMixin):
 
         installments_payments_stats_df["installment_overdue_ratio"] = installments_payments_stats_df["is_installment_overdue_sum"] / installments_payments_stats_df["number_of_installments"]
 
-        # Check if last and first installments were overdue
-        subset_data1_df = installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "nb_overdue_days"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, False]).groupby("SK_ID_CURR")
-        subset_data2_df = installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "PAYMENT_PERC"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, False]).groupby("SK_ID_CURR")
-        subset_data3_df = installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "nb_overdue_days"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, True]).groupby("SK_ID_CURR")
-        subset_data4_df = installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "PAYMENT_PERC"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, True]).groupby("SK_ID_CURR")
+        # Check if last installments were overdue
+        installments_payments_stats_df["last_installment_was_overdue"] = (installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "nb_overdue_days"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, False]).groupby("SK_ID_CURR").head(1).reset_index(drop = True)["nb_overdue_days"] > 0).astype(np.int8)
         
-        chunk_data_lst = []
-        # For last installments
-        for i in [1, 5, 10, 20]:
-            chunk_data_lst.append((subset_data1_df, i, 1))
-            chunk_data_lst.append((subset_data2_df, i, 2))
+        for window in [5, 10, 20]:
+            installments_payments_stats_df["nb_overdue_" + str(window) + "_last_installments"] = installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "nb_overdue_days"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, False]).groupby("SK_ID_CURR").head(window).groupby("SK_ID_CURR")["nb_overdue_days"].apply(lambda x: (x > 0).sum())
 
-        """
-        # For first installments
-        for i in [1, 5, 10, 20]:
-            chunk_data_lst.append((subset_data3_df, i, 3))
-            chunk_data_lst.append((subset_data4_df, i, 4))"""
+        # Check if last installments were not totally paid
+        installments_payments_stats_df["last_installment_was_not_totally_paid"] = (installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "PAYMENT_PERC"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, False]).groupby("SK_ID_CURR").head(1).reset_index(drop = True)["PAYMENT_PERC"] < 1).astype(np.int8)
 
-        # Number of overdues for each loan, normalized by the loan's length
-        chunk_data_lst.append((subset_data1_df, None, 5))
-        chunk_data_lst.append((subset_data2_df, None, 6))
-        
-        # Cumulated number of overdue days normalized by loan's length
-        chunk_data_lst.append((subset_data1_df, None, 7))
-        chunk_data_lst.append((subset_data2_df, None, 8))
-
-        # Look at which moment of the credit repayment the overdue appeared
-        chunk_data_lst.append((subset_data3_df, None, 9))
-        chunk_data_lst.append((subset_data4_df, None, 10))
+        for window in [5, 10, 20]:
+            installments_payments_stats_df["nb_not_totally_paid_" + str(window) + "_last_installments"] = installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "nb_overdue_days"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, False]).groupby("SK_ID_CURR").head(window).groupby("SK_ID_CURR")["nb_overdue_days"].apply(lambda x: (x < 1).sum())
 
         # Look for trends in overdue
-        chunk_data_lst.append((subset_data3_df["nb_overdue_days"], None, "nb_overdue_days_trend"))
-        chunk_data_lst.append((subset_data4_df["PAYMENT_PERC"], None, "PAYMENT_PERC_trend"))
+        subset_data3_df = installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "nb_overdue_days"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, True]).groupby("SK_ID_CURR")
+        subset_data4_df = installments_payments_data_df[["SK_ID_CURR", "DAYS_INSTALMENT", "PAYMENT_PERC"]].sort_values(["SK_ID_CURR", "DAYS_INSTALMENT"], ascending = [True, True]).groupby("SK_ID_CURR")
+        installments_payments_stats_df["nb_overdue_days_trend"] = subset_data3_df["nb_overdue_days"].apply(lambda x: self._create_trend_feature(x))
+        installments_payments_stats_df["PAYMENT_PERC_trend"] = subset_data4_df["PAYMENT_PERC"].apply(lambda x: self._create_trend_feature(x))
         
-        pool = mp.Pool(self.n_jobs)
-        results_lst = pool.map(self.transform_installments_payments_worker, chunk_data_lst)
-        pool.close()
-        pool.join()
-
-        for result_sr, feature_name in results_lst:
-            installments_payments_stats_df[feature_name] = result_sr
-
         # Add prefix to columns
         installments_payments_stats_df.columns = ["installments_payments_" + c for c in installments_payments_stats_df.columns.tolist()]
-
-        print("    Pre-processing 'installments_payments.csv'... done in", round(time.time() - st, 3), "secs")
-
-        return installments_payments_stats_df
-    
-    def transform(self, bureau_data_df, bureau_balance_data_df, credit_card_balance_data_df, installments_payments_data_df, pos_cash_balance_data_df, previous_application_data_df):
-        """
-        This method is called to fit the transformer on the training data.
-
-        Parameters
-        ----------
-        bureau_data_df : pd.DataFrame
-                Additional data frame.
-
-        bureau_balance_data_df : pd.DataFrame
-                Additional data frame.
-
-        credit_card_balance_data_df : pd.DataFrame
-                Additional data frame.
-
-        installments_payments_data_df : pd.DataFrame
-                Additional data frame.
-
-        pos_cash_balance_data_df : pd.DataFrame
-                Additional data frame.
-
-        previous_application_data_df : pd.DataFrame
-                Additional data frame.
                 
-        Returns
-        -------
-        X : pd.DataFrame
-                This is a data frame containing the data that will be transformed.
-        """
-                    
-        print("Additional files preprocessing data...")    
-        
-        # Processing 'bureau.csv'
-        bureau_stats_df = self.transform_bureau_data(bureau_data_df, bureau_balance_data_df)
-
-        # Doing some housekeeping
-        ## Remove constant features
-        tmp = bureau_stats_df.nunique()
-        constant_features_lst = tmp.loc[tmp == 1].index.tolist()
-        bureau_stats_df.drop(constant_features_lst, axis = 1, inplace = True)
-
-        ## Remove features with more than 80% of missing values
-        tmp = bureau_stats_df.isnull().sum()
-        too_many_nas_features_lst = tmp.loc[tmp > 0.8 * bureau_stats_df.shape[0]].index.tolist()
-        bureau_stats_df.drop(too_many_nas_features_lst, axis = 1, inplace = True)
-
-        ## Remove useless features
-        useless_features_lst = ["bureau_CNT_CREDIT_PROLONG_nunique", "bureau_bureau_balance_MONTHS_BALANCE_max_max", "bureau_bureau_balance_STATUS_nunique_nunique", "bureau_bureau_balance_STATUS_2_nunique",
-                                "bureau_CREDIT_ACTIVE_Active_nunique", "bureau_CREDIT_CURRENCY_OrdinalEncoder_min", "bureau_CREDIT_TYPE_Mortgage_min",
-                                "bureau_CREDIT_DAY_OVERDUE_min", "bureau_CNT_CREDIT_PROLONG_min", "bureau_CNT_CREDIT_PROLONG_max", "bureau_AMT_CREDIT_SUM_OVERDUE_min", 
-                                "bureau_bureau_balance_STATUS_3_sum", "bureau_bureau_balance_STATUS_3_nunique", "bureau_bureau_balance_STATUS_4_sum", "bureau_bureau_balance_STATUS_4_nunique", 
-                                "bureau_bureau_balance_STATUS_5_sum", "bureau_bureau_balance_STATUS_5_nunique", "bureau_CREDIT_ACTIVE_Bad debt_mean", "bureau_CREDIT_ACTIVE_Bad debt_std", 
-                                "bureau_CREDIT_ACTIVE_Bad debt_min", "bureau_CREDIT_ACTIVE_Bad debt_max", "bureau_CREDIT_ACTIVE_Bad debt_sum", "bureau_CREDIT_ACTIVE_Bad debt_nunique", 
-                                "bureau_CREDIT_ACTIVE_Closed_nunique", "bureau_CREDIT_ACTIVE_Sold_min", "bureau_CREDIT_ACTIVE_Sold_max", "bureau_CREDIT_ACTIVE_Sold_sum", 
-                                "bureau_CREDIT_ACTIVE_Sold_nunique", "bureau_CREDIT_CURRENCY_OrdinalEncoder_mean", "bureau_CREDIT_CURRENCY_OrdinalEncoder_std", "bureau_CREDIT_CURRENCY_OrdinalEncoder_max", 
-                                "bureau_CREDIT_CURRENCY_OrdinalEncoder_sum", "bureau_CREDIT_CURRENCY_OrdinalEncoder_nunique", "bureau_CREDIT_TYPE_Car loan_mean", "bureau_CREDIT_TYPE_Car loan_std", 
-                                "bureau_CREDIT_TYPE_Car loan_min", "bureau_CREDIT_TYPE_Car loan_max", "bureau_CREDIT_TYPE_Car loan_sum", "bureau_CREDIT_TYPE_Car loan_nunique", 
-                                "bureau_CREDIT_TYPE_Consumer credit_mean", "bureau_CREDIT_TYPE_Consumer credit_std", "bureau_CREDIT_TYPE_Consumer credit_min", "bureau_CREDIT_TYPE_Consumer credit_max", 
-                                "bureau_CREDIT_TYPE_Consumer credit_sum", "bureau_CREDIT_TYPE_Consumer credit_nunique", "bureau_CREDIT_TYPE_Credit card_mean", "bureau_CREDIT_TYPE_Credit card_std", 
-                                "bureau_CREDIT_TYPE_Credit card_min", "bureau_CREDIT_TYPE_Credit card_max", "bureau_CREDIT_TYPE_Credit card_sum", "bureau_CREDIT_TYPE_Credit card_nunique", "bureau_CREDIT_TYPE_OTHER_min"]
-
-        bureau_stats_df.drop(useless_features_lst, axis = 1, inplace = True)
-
-        ## Remove duplicated features
-        bureau_stats_df["bureau_nb_records"] = bureau_stats_df["bureau_bureau_count"]
-        duplicated_features_lst = ["bureau_AVG_CREDITDAYS_PROLONGED", "bureau_TOTAL_CUSTOMER_CREDIT", "bureau_TOTAL_CUSTOMER_DEBT", "bureau_TOTAL_CUSTOMER_OVERDUE", "bureau_CREDIT_ENDDATE_PERCENTAGE",
-                                   "bureau_AVG_ENDDATE_FUTURE", "bureau_bureau_count", "bureau_nb_bureau_records", "bureau_bureau_count", "bureau_BUREAU_LOAN_COUNT", "bureau_nb_bureau_records", 
-                                   "bureau_BUREAU_LOAN_COUNT"]
-
-        bureau_stats_df.drop(duplicated_features_lst, axis = 1, inplace = True)
-
-        # Processing 'previous_application.csv'
-        previous_application_stats_df = self.transform_previous_applications_data(previous_application_data_df, installments_payments_data_df)
-
-        # Doing some housekeeping
-        ## Remove constant features
-        tmp = previous_application_stats_df.nunique()
-        constant_features_lst = tmp.loc[tmp == 1].index.tolist()
-        previous_application_stats_df.drop(constant_features_lst, axis = 1, inplace = True)
-
-        # Processing 'credit_card_balance.csv'
-        card_balance_stats_df = self.transform_credit_card_balance_data(credit_card_balance_data_df)
-        
-        # Processing 'pos_cash_balance.csv'
-        pos_cash_balance_stats_df = self.transform_pos_cash_balance_data(pos_cash_balance_data_df)
-
-        # Processing 'installments_payments.csv'
-        installments_payments_stats_df = self.transform_installments_payments_data(installments_payments_data_df)
-
-        # Merging all datasets into one                
         final_dataset_df = previous_application_stats_df.reset_index().merge(bureau_stats_df, how = "left", on = "SK_ID_CURR")
         final_dataset_df = final_dataset_df.merge(card_balance_stats_df, how = "left", on = "SK_ID_CURR")
         final_dataset_df = final_dataset_df.merge(pos_cash_balance_stats_df.reset_index(), how = "left", on = "SK_ID_CURR")
         final_dataset_df = final_dataset_df.merge(installments_payments_stats_df.reset_index(), how = "left", on = "SK_ID_CURR")
-        print("Additional files preprocessing data... done")
 
+
+        # Do some housekeeping
+        ## Remove constant features
+        tmp = final_dataset_df.nunique()
+        constant_features_lst = tmp.loc[tmp == 1].index.tolist()
+        print("Found", len(constant_features_lst), "constant features. Removing them...")
+        final_dataset_df.drop(constant_features_lst, axis = 1, inplace = True)
+
+        ## Remove binary features with low variance
+
+
+        print("Additional files preprocessing data... done")
         print("*** Total additional features:", final_dataset_df.shape[1], "***")
 
+        #return bureau_data_df, bureau_balance_data_df, credit_card_balance_data_df, installments_payments_data_df, pos_cash_balance_data_df, previous_application_data_df
         return final_dataset_df
 
     def fit_transform(self, target_df, bureau_data_df, bureau_balance_data_df, credit_card_balance_data_df, installments_payments_data_df, pos_cash_balance_data_df, previous_application_data_df):

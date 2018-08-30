@@ -49,7 +49,7 @@ if __name__ == "__main__":
     # Set the seed of numpy's PRNG
     np.random.seed(2017)
 
-    enable_validation = True
+    enable_validation = False
 
     # Load the data; y_test is None when 'enable_validation' is False
     X_train, X_test, y_train, y_test, bureau_data_df, bureau_balance_data_df, credit_card_balance_data_df, installments_payments_data_df, pos_cash_balance_data_df, previous_application_data_df = load_data(TRAINING_DATA_str, TESTING_DATA_str, BUREAU_DATA_str, BUREAU_BALANCE_DATA_str, CREDIT_CARD_BALANCE_DATA_str, INSTALLMENTS_PAYMENTS_DATA_str, POS_CASH_BALANCE_DATA_str, PREVIOUS_APPLICATION_DATA_str, enable_validation, "TARGET", CACHE_DIR_str)
@@ -59,17 +59,12 @@ if __name__ == "__main__":
     print("Train shape: ", X_train.shape)
     print("Test shape: ", X_test.shape)
 
-    if not os.path.exists("E:/final_dataset_df.pkl"):
-        print("Processing additional datasets...")
-        additional_files_preprocessor = AdditionalFilesPreprocessingStep()
-        final_dataset_df = additional_files_preprocessor.fit_transform(target_df, bureau_data_df, bureau_balance_data_df, credit_card_balance_data_df, installments_payments_data_df, pos_cash_balance_data_df, previous_application_data_df)
+    additional_files_preprocessor = AdditionalFilesPreprocessingStep()
+    final_dataset_df = additional_files_preprocessor.fit_transform(target_df, bureau_data_df, bureau_balance_data_df, credit_card_balance_data_df, installments_payments_data_df, pos_cash_balance_data_df, previous_application_data_df)
 
-        with open("E:/final_dataset_df.pkl", "wb") as f:
-            pickle.dump(final_dataset_df, f, protocol = 4)
-    else:
-        print("Loading processed additional datasets from cache...")
-        with open("E:/final_dataset_df.pkl", "rb") as f:
-            final_dataset_df = pickle.load(f)
+    # Save generated features
+    with open("E:/all_additional_features_22082018.pkl", "wb") as f:
+        pickle.dump(final_dataset_df, f, protocol = 4)
 
     columns_to_be_encoded_lst = ["NAME_CONTRACT_TYPE", "FLAG_OWN_CAR", "FLAG_OWN_REALTY", "EMERGENCYSTATE_MODE", "CODE_GENDER", "CODE_GENDER", 
                                  "HOUSETYPE_MODE", "FONDKAPREMONT_MODE", "NAME_EDUCATION_TYPE", "NAME_EDUCATION_TYPE", "NAME_FAMILY_STATUS", "NAME_HOUSING_TYPE",
@@ -189,6 +184,7 @@ if __name__ == "__main__":
     # Last submission: 22/07/2018, Public LB score: 0.802, local validation score: 0.7939531011343464, best iteration: [6200]  cv_agg's auc: 0.794916 + 0.00251919
     # Last submission: 26/07/2018, Public LB score: 0.802, local validation score: 0.7942585900748229, best iteration: [6600]  cv_agg's auc: 0.795471 + 0.00262586
     # Last submission: 21/08/2018, Public LB score: 0.802, local validation score: 0.79408108997792, best iteration: [5800]  cv_agg's auc: 0.795097 + 0.00244536
+    # Last submission: 22/08/2018, Public LB score: 0.802, local validation score: 0., best iteration: [6200]  cv_agg's auc: 0.795217 + 0.00227989
 
 """
 import pandas as pd
